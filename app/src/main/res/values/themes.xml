@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 使用 DayNight 主题，完美支持深浅色模式切换 -->
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- 移除原来写死的 statusBarColor 和 windowLightStatusBar -->
+        <!-- Compose 的 enableEdgeToEdge 会自动处理沉浸式和图标颜色 -->
+    </style>
+</resources>
