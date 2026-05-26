@@ -1,3 +1,0 @@
-{"id":"9992fa8e-e83f-44b1-9fdb-3f3970f1d7aa","sender":"USER","status":"SENT","text":"牛逼","timestamp":1776968043983}
-{"id":"5f80082a-2188-451b-a4d6-78c0a32c14d4","sender":"AGENT","status":"SENT","text":"An error occurred: 400 BAD_REQUEST. A client-side error occurred. This is often due to an invalid API key (e.g., with extra spaces or newlines) or a malformed request. Please check your configuration and credentials.","timestamp":1776968043984}
-{"id":"44788422-c635-4f63-b625-8f3e3ade3ba0","sender":"SYSTEM","status":"ERROR","text":"❌ No Gemini API Key found.\nIf you recently updated or reinstalled the app, your API key may have been reset.\nPlease add your Gemini key again in AI Settings.","timestamp":1777009555807}

@@ -1,0 +1,51 @@
+{
+  "allFiles": [
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/vmq_app/app/src/main/java/com/xixin/lian/store/AppStore.kt",
+      "selection": {
+        "end": {
+          "column": 50,
+          "index": 439,
+          "line": 12
+        },
+        "start": {
+          "column": 50,
+          "index": 439,
+          "line": 12
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/vmq_app/app/src/main/java/com/xixin/lian/service/PaymentNotificationListener.kt",
+      "selection": {
+        "end": {
+          "column": 0,
+          "index": 0,
+          "line": 0
+        },
+        "start": {
+          "column": 0,
+          "index": 0,
+          "line": 0
+        }
+      }
+    },
+    {
+      "file": "/storage/emulated/0/CodeOnTheGoProjects/vmq_app/app/src/main/java/com/xixin/lian/MainActivity.kt",
+      "selection": {
+        "end": {
+          "column": 0,
+          "index": 1888,
+          "line": 47
+        },
+        "start": {
+          "column": 0,
+          "index": 1888,
+          "line": 47
+        }
+      }
+    }
+  ],
+  "projectPath": "/storage/emulated/0/CodeOnTheGoProjects/vmq_app",
+  "selectedFile": "/storage/emulated/0/CodeOnTheGoProjects/vmq_app/app/src/main/java/com/xixin/lian/store/AppStore.kt"
+}

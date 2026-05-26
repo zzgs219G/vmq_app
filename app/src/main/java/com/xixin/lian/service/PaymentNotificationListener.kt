@@ -31,34 +31,29 @@ class PaymentNotificationListener : NotificationListenerService() {
         AppStore.addLog("✅ 监听服务进程已创建")
     }
 
-    override fun onListenerConnected() {
-        AppStore.addLog(">>> 监控系统成功连接系统通知总线 <<<")
-        
-        // 获取你应用的彩色桌面图标 (作为下拉通知的全彩大图)
-        val largeIconBitmap = BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
+  override fun onListenerConnected() {
+    AppStore.addLog(">>> 监控系统成功连接系统通知总线 <<<")
+    
+    val largeIconBitmap = BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher)
 
-        val notification = NotificationCompat.Builder(this, AppStore.CHANNEL_MONITOR)
-            // 1. 状态栏小图标 (仍然必须是你刚才创建的那个镂空 ic_payment)
-            .setSmallIcon(R.drawable.ic_payment) 
-            // 2. 下拉后的全彩大图标 (这里用你App原本的彩色Logo)
-            .setLargeIcon(largeIconBitmap)
-            // 3. 【核心】主题染色：把原本灰白的小图标染成高级的主题色（比如支付宝蓝或微信绿）
-            .setColor(Color.parseColor("#1E88E5")) 
-            .setContentTitle("V免签监控运行中")
-            .setContentText("正在持续监听微信与支付宝的收款通知")
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .build()
-            
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, notification)
-    }
+    val notification = NotificationCompat.Builder(this, AppStore.CHANNEL_MONITOR)
+        .setSmallIcon(R.drawable.ic_payment)
+        .setLargeIcon(largeIconBitmap)
+        .setColor(Color.parseColor("#1E88E5"))
+        .setContentTitle("V免签监控运行中")
+        .setContentText("正在持续监听微信与支付宝的收款通知")
+        .setOngoing(true)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .build()
+
+    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    notificationManager.notify(NOTIFICATION_ID, notification)
+}
 
     override fun onListenerDisconnected() {
-        super.onListenerDisconnected()
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.cancel(NOTIFICATION_ID)
-        AppStore.addLog("⚠️ 监控系统已断开，请检查通知权限")
+    super.onListenerDisconnected()
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    AppStore.addLog("⚠️ 监控系统已断开，请检查通知权限")
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {

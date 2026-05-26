@@ -26,7 +26,11 @@
             </intent-filter>
         </activity>
 
-        <!-- 注意：这里已经将旧的 KeepAliveService 删除了 -->
+        <!-- 注意：这里已经将旧的 KeepAliveService 删除了 
+        <service
+    android:name=".service.KeepAliveService"
+    android:foregroundServiceType="dataSync" />      -->
+
 
         <!-- 唯一的通知监听服务，系统级保活 -->
         <service

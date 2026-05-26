@@ -88,19 +88,20 @@ private fun processRetryQueue() {
     }
 }
     private fun sendSuccessNotification(type: String, price: String, responseBody: String) {
-        try {
-            val typeName = type.replaceFirstChar { it.uppercase() }
-            val builder = NotificationCompat.Builder(AppStore.applicationContext, AppStore.CHANNEL_PUSH_SUCCESS)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("$typeName 支付推送成功")
-                .setContentText("金额 $price 元已上报")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setAutoCancel(true)
+    try {
+        val context = AppStore.applicationContext ?: return
+        val typeName = type.replaceFirstChar { it.uppercase() }
+        val builder = NotificationCompat.Builder(context, AppStore.CHANNEL_PUSH_SUCCESS)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("$typeName 支付推送成功")
+            .setContentText("金额 $price 元已上报")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
 
-            androidx.core.app.NotificationManagerCompat.from(AppStore.applicationContext)
-                .notify(System.currentTimeMillis().toInt(), builder.build())
-        } catch (e: Exception) {
-            AppStore.addLog("⚠️ 通知失败: ${e.message}")
-        }
+        androidx.core.app.NotificationManagerCompat.from(context)
+            .notify(System.currentTimeMillis().toInt(), builder.build())
+    } catch (e: Exception) {
+        AppStore.addLog("⚠️ 通知失败: ${e.message}")
     }
+}
 }

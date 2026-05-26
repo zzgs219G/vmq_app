@@ -40,7 +40,7 @@ fun MonitorScreen() {
     val endpoint by AppStore.apiEndpoint.collectAsState()
     val secretKey by AppStore.secretKey.collectAsState()
     
-    var hasPermission by remember { mutableStateOf(checkPermission(context)) }
+    val hasPermission by AppStore.hasNotificationPermission.collectAsState()
     
     // 控制底部设置面板的显示状态
     var showSettingsSheet by remember { mutableStateOf(false) }

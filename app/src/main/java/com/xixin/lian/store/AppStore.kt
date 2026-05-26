@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.*
-
+import androidx.core.app.NotificationManagerCompat
 object AppStore {
     private const val PREFS_NAME = "v_mq_settings"
     private const val KEY_ENDPOINT = "api_endpoint"
@@ -18,7 +18,7 @@ object AppStore {
     
     // 【关键修复】：更改 Channel ID (加了 _v2 后缀)。
     // 强制系统重新创建一个全新的、重要级别为 DEFAULT 的通知渠道，这样状态栏左上角就必定有图标了！
-    const val CHANNEL_MONITOR = "monitor_foreground_v2" 
+    const val CHANNEL_MONITOR = "monitor_foreground_v2"
     const val CHANNEL_PUSH_SUCCESS = "payment_push_success_v2"
 
     private var prefs: SharedPreferences? = null
@@ -31,6 +31,15 @@ object AppStore {
 
     var applicationContext: Context? = null
         private set
+        
+    
+    val hasNotificationPermission = MutableStateFlow(false)
+
+    fun updatePermission(context: Context) {
+    hasNotificationPermission.value = 
+        NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+    }
+
 
     fun init(context: Context) {
         applicationContext = context.applicationContext
@@ -46,14 +55,14 @@ object AppStore {
 
             // 监控常驻渠道：使用 IMPORTANCE_DEFAULT 确保状态栏显示图标
             val monitorChannel = NotificationChannel(
-                CHANNEL_MONITOR,
-                "监控服务 (常驻)",
-                NotificationManager.IMPORTANCE_DEFAULT 
-            ).apply {
-                description = "常驻通知，确保系统不杀后台"
-                setSound(null, null)
-                enableVibration(false)
-            }
+    CHANNEL_MONITOR,
+    "监控服务 (常驻)",
+    NotificationManager.IMPORTANCE_DEFAULT
+).apply {
+    description = "常驻通知，确保系统不杀后台"
+    setSound(null, null)
+    enableVibration(false)
+}
             nm.createNotificationChannel(monitorChannel)
 
             // 推送成功渠道：使用 IMPORTANCE_HIGH 确保弹出横幅提示

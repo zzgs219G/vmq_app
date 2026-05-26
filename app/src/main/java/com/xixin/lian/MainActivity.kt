@@ -1,5 +1,6 @@
 package com.xixin.lian
 
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -16,23 +17,27 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.xixin.lian.store.AppStore
 import com.xixin.lian.ui.MonitorScreen
+import android.content.Intent
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         AppStore.init(this)
-
+  /*     //自动跳转授权
+        if (!NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)) {
+        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+*/
         // 请求 Android 13+ 悬浮/横幅通知权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
             }
         }
-
-        // 【核心修复】：移除了启动 KeepAliveService 的代码。
-        // 因为只要用户给了监听权限，系统就会自动唤醒 PaymentNotificationListener 并显示常驻图标。
-
+        
         enableEdgeToEdge()
         
         setContent {
@@ -56,4 +61,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    
+    override fun onResume() {
+    super.onResume()
+    AppStore.init(this)
+    AppStore.updatePermission(this)
+}
 }
