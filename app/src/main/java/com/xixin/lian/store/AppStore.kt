@@ -29,7 +29,7 @@ object AppStore {
     private val _logs = MutableStateFlow<List<String>>(listOf("系统就绪，等待权限..."))
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
-    lateinit var applicationContext: Context
+    var applicationContext: Context? = null
         private set
 
     fun init(context: Context) {
@@ -42,7 +42,7 @@ object AppStore {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val nm = applicationContext?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
 
             // 监控常驻渠道：使用 IMPORTANCE_DEFAULT 确保状态栏显示图标
             val monitorChannel = NotificationChannel(

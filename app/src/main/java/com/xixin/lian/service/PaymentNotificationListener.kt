@@ -17,9 +17,10 @@ import java.util.regex.Pattern
 class PaymentNotificationListener : NotificationListenerService() {
 
     private val patterns = listOf(
-        Pattern.compile("收款\\s*([0-9]+\\.[0-9]{2})"),
-        Pattern.compile("付款\\s*([0-9]+\\.[0-9]{2})"),
-        Pattern.compile("([0-9]+\\.[0-9]{2})\\s*元")
+    Pattern.compile("收款\\s*¥?([0-9]+(?:\\.[0-9]{1,2})?)"),
+    Pattern.compile("付款\\s*¥?([0-9]+(?:\\.[0-9]{1,2})?)"),
+    Pattern.compile("¥\\s*([0-9]+(?:\\.[0-9]{1,2})?)"),
+    Pattern.compile("([0-9]+(?:\\.[0-9]{1,2})?)\\s*元")
     )
 
     private val NOTIFICATION_ID = 999
@@ -69,12 +70,12 @@ class PaymentNotificationListener : NotificationListenerService() {
 
         when (pkg) {
             "com.eg.android.AlipayGphone" -> {
-                if (fullText.contains("收款") || fullText.contains("成功")) {
+                if (fullText.contains("收款") || fullText.contains("付款成功")) {
                     parseAndReport("alipay", fullText)
                 }
             }
             "com.tencent.mm" -> {
-                if (fullText.contains("微信支付") || fullText.contains("收款")) {
+                if (fullText.contains("微信支付") || fullText.contains("收款") || fullText.contains("转账")) {
                     parseAndReport("wechat", fullText)
                 }
             }
@@ -93,8 +94,8 @@ class PaymentNotificationListener : NotificationListenerService() {
                 break
             }
         }
-        if (!found) {
-            Log.d("V-MQ", "未匹配的通知: $text")
-        }
+if (!found) {
+    AppStore.addLog("⚠️ 未匹配的通知: $text")  // 改这里
+}
     }
 }
