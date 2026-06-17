@@ -19,41 +19,58 @@ import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
-
+import java.util.concurrent.atomic.AtomicBoolean
 object KtorClient {
-
-    // 离线重试队列，存放发送失败的单子 (type, price)
     private val failedTasks = ConcurrentLinkedQueue<Pair<String, String>>()
+    private val isPushing = AtomicBoolean(false)
 
     private val client = HttpClient(OkHttp) {
-    expectSuccess = false
-    engine {
-        config {
-            connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
-            retryOnConnectionFailure(true)
-            connectTimeout(10, TimeUnit.SECONDS)
-            readTimeout(10, TimeUnit.SECONDS)
+        expectSuccess = false
+        engine {
+            config {
+                connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+                retryOnConnectionFailure(true)
+                connectTimeout(10, TimeUnit.SECONDS)
+                readTimeout(10, TimeUnit.SECONDS)
+            }
         }
     }
-}
 
-    private fun md5(input: String): String {
-        return MessageDigest.getInstance("MD5").digest(input.toByteArray())
+    private fun hmacSha256(data: String, key: String): String {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(), "HmacSHA256"))
+        return mac.doFinal(data.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }
 
-    // 主入口：尝试推送，如果失败自动放入重试队列
+    // 主入口：入队后触发消费
     fun pushPayment(type: String, price: String) {
-    processRetryQueue()
-    doPush(type, price)
-}
+        failedTasks.add(type to price)
+        drainQueue()
+    }
 
-    private fun doPush(type: String, price: String) {
-    CoroutineScope(Dispatchers.IO).launch {
+    // 串行消费队列，用 AtomicBoolean 保证同时只有一个协程在跑
+    private fun drainQueue() {
+        if (!isPushing.compareAndSet(false, true)) return
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                while (true) {
+                    val task = failedTasks.poll() ?: break
+                    doPush(task.first, task.second)
+                }
+            } finally {
+                isPushing.set(false)
+                // 收尾时队列如果又进来了新任务，再起一轮
+                if (failedTasks.isNotEmpty()) drainQueue()
+            }
+        }
+    }
+
+    private suspend fun doPush(type: String, price: String) {
         try {
             val url = AppStore.apiEndpoint.value.trim()
             val key = AppStore.secretKey.value.trim()
-            val sign = md5("$type$price$key")
+            val sign = hmacSha256("$type$price", key)
             val jsonBody = """{"type":"$type","price":"$price","sign":"$sign"}"""
             AppStore.addLog("⏳ 正在推送($type): $price 元")
             val response = client.post(url) {
@@ -69,39 +86,24 @@ object KtorClient {
             }
         } catch (e: Exception) {
             AppStore.addLog("🚨 推送失败: ${e.message}，已存入重试队列")
-            failedTasks.add(type to price)
+            failedTasks.add(type to price) // 失败重新入队，等下次 pushPayment 触发时一起带走
         }
     }
-}
 
-private fun processRetryQueue() {
-    if (failedTasks.isEmpty()) return
-    // 把当前队列里的任务全部取出来，单独重试
-    // 不在迭代过程中操作队列，避免并发问题
-    val snapshot = mutableListOf<Pair<String, String>>()
-    while (true) {
-        val task = failedTasks.poll() ?: break
-        snapshot.add(task)
-    }
-    snapshot.forEach { (type, price) ->
-        doPush(type, price)
-    }
-}
     private fun sendSuccessNotification(type: String, price: String, responseBody: String) {
-    try {
-        val context = AppStore.applicationContext ?: return
-        val typeName = type.replaceFirstChar { it.uppercase() }
-        val builder = NotificationCompat.Builder(context, AppStore.CHANNEL_PUSH_SUCCESS)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("$typeName 支付推送成功")
-            .setContentText("金额 $price 元已上报")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-
-        androidx.core.app.NotificationManagerCompat.from(context)
-            .notify(System.currentTimeMillis().toInt(), builder.build())
-    } catch (e: Exception) {
-        AppStore.addLog("⚠️ 通知失败: ${e.message}")
+        try {
+            val context = AppStore.applicationContext ?: return
+            val typeName = type.replaceFirstChar { it.uppercase() }
+            val builder = NotificationCompat.Builder(context, AppStore.CHANNEL_PUSH_SUCCESS)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("$typeName 支付推送成功")
+                .setContentText("金额 $price 元已上报")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+            androidx.core.app.NotificationManagerCompat.from(context)
+                .notify(System.currentTimeMillis().toInt(), builder.build())
+        } catch (e: Exception) {
+            AppStore.addLog("⚠️ 通知失败: ${e.message}")
+        }
     }
-}
 }
