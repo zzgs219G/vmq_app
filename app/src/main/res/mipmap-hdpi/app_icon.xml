@@ -4,17 +4,33 @@
     android:width="1024dp"
     android:viewportWidth="1024.0"
     android:viewportHeight="1024.0">
+
+    <!-- 1. 背景：铺满画布，四角带 200px 圆角 -->
     <path
         android:fillColor="#FF1D4ED8"
-        android:pathData="M256,64L768,64A192,192 0,0 1,960 256L960,768A192,192 0,0 1,768 960L256,960A192,192 0,0 1,64 768L64,256A192,192 0,0 1,256 64z" />
+        android:pathData="
+            M 200,0
+            L 824,0
+            A 200,200 0 0,1 1024,200
+            L 1024,824
+            A 200,200 0 0,1 824,1024
+            L 200,1024
+            A 200,200 0 0,1 0,824
+            L 0,200
+            A 200,200 0 0,1 200,0 Z" />
+
+    <!-- 2. 盾牌/钱包：整体上移 63px（顶部 97，底部 927，中心正好 512） -->
     <path
-        android:fillColor="#FFF0F9FF"
-        android:pathData="M512,200L256,304v200c0,150 112,280 256,336c144,-56 256,-186 256,-336V304L512,200z" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M512,97 L160,277 v240 c0,190 150,350 352,410 c202,-60 352,-220 352,-410 V277 Z" />
+
+    <!-- 3. 对勾符号：同步上移 63px，与盾牌相对位置不变 -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M380,380L512,670L644,380"
+        android:pathData="M340,427 L480,627 L720,347"
         android:strokeColor="#FF10B981"
-        android:strokeWidth="74.0"
+        android:strokeWidth="100"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
+
 </vector>

@@ -89,45 +89,25 @@ android {
 }
 
 dependencies {
-    implementation("com.google.android.material:material:1.12.0")
-
-    // 核心：只需 Dexlib2
-    
-    // ❌ 删掉 bundletool，它包含了会导致 R8 崩溃的 dex 测试文件！
-    // implementation("com.android.tools.build:bundletool:1.15.6") 
-    
-    // ❌ 这些也可以删掉，除非你后续真的打算在手机端做 v2/v3 签名和 XML 二进制修改
-    // implementation("com.android.tools.build:apksig:8.2.0")
-    // implementation("com.googlecode.plist:dd-plist:1.27")
-    // implementation("org.ow2.asm:asm:9.6")
-    // implementation("org.ow2.asm:asm-commons:9.6")
-
-    // Compose BOM
+    // Compose BOM 和核心 UI
     implementation(platform(libs.androidx.compose.bom))
-
-    // 核心 UI Bundle
     implementation(libs.bundles.compose.ui.core)
     implementation(libs.androidx.compose.icons.extended)
     implementation(libs.androidx.compose.icons.core)
-
+implementation("com.google.android.material:material:1.12.0")
     // AndroidX 基础设施
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-    // implementation(libs.androidx.webkit)
 
-    // ❌ 删掉 Media3 和 网络库，这个注入器用不到它们，它们会极大增加体积
-     implementation(libs.bundles.media3.full)
-     implementation(libs.bundles.ktor.full)
-     implementation(libs.okhttp)
-     implementation(libs.gson)
-     implementation(libs.coil.compose)
-     implementation(libs.coil.network.okhttp)
+    // 网络库（只用 Ktor 核心 + OkHttp 引擎，代码一行不用改）
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
 
-    // 实用工具
+    // 协程与日志
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.slf4j.nop) // dexlib2 需要的日志空壳
+    implementation(libs.slf4j.nop)
 
     // 调试预览
     debugImplementation(libs.androidx.compose.ui.tooling)
