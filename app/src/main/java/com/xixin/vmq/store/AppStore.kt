@@ -1,4 +1,4 @@
-package com.xixin.lian.store
+package com.xixin.vmq.store
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -23,21 +23,38 @@ object AppStore {
 
     private var prefs: SharedPreferences? = null
 
-    val apiEndpoint = MutableStateFlow("https://")
-    val secretKey = MutableStateFlow("123456")
+    // 不做任何默认值兜底：未配置时就是空串，让上层显式报错。
+    // 旧版本此处默认给了与后端相同的密钥，会造成“装完即可用”的假象。
+    val apiEndpoint = MutableStateFlow("")
+    val secretKey = MutableStateFlow("")
 
     private val _logs = MutableStateFlow<List<String>>(listOf("系统就绪，等待权限..."))
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
     var applicationContext: Context? = null
         private set
-        
-    
+
+    /**
+     * 通知监听权限（NotificationListenerService）是否已授予。
+     *
+     * ⚠️ 原名 hasNotificationPermission，容易与 POST_NOTIFICATIONS 混淆。
+     * 本应用真正依赖的是通知监听权限 —— 没有它完全无法抓取收款通知，
+     * 而 POST_NOTIFICATIONS 只影响我们自己的提示能否显示。
+     */
+    val hasListenerPermission = MutableStateFlow(false)
+
+    /** POST_NOTIFICATIONS（Android 13+）是否已授予，仅影响提示可见性。 */
     val hasNotificationPermission = MutableStateFlow(false)
 
     fun updatePermission(context: Context) {
-    hasNotificationPermission.value = 
-        NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        hasListenerPermission.value =
+            NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+
+        hasNotificationPermission.value = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            NotificationManagerCompat.from(context).areNotificationsEnabled()
+        } else {
+            true
+        }
     }
 
 
@@ -46,8 +63,8 @@ object AppStore {
 
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            apiEndpoint.value = prefs?.getString(KEY_ENDPOINT, "https://") ?: "https://"
-            secretKey.value = prefs?.getString(KEY_SECRET, "123456") ?: "123456"
+            apiEndpoint.value = prefs?.getString(KEY_ENDPOINT, "") ?: ""
+            secretKey.value = prefs?.getString(KEY_SECRET, "") ?: ""
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -96,5 +113,27 @@ object AppStore {
 
     fun clearLogs() {
         _logs.value = emptyList()
+    }
+
+    /**
+     * 推送成功后弹提示。
+     *
+     * 从 KtorClient 抽到此处：KtorClient 不应直接依赖通知构建细节。
+     */
+    fun notifyPushSuccess(type: String, price: String) {
+        try {
+            val context = applicationContext ?: return
+            val typeName = type.replaceFirstChar { it.uppercase() }
+            val builder = androidx.core.app.NotificationCompat.Builder(context, CHANNEL_PUSH_SUCCESS)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("$typeName 支付推送成功")
+                .setContentText("金额 $price 元已上报")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+            androidx.core.app.NotificationManagerCompat.from(context)
+                .notify(System.currentTimeMillis().toInt(), builder.build())
+        } catch (e: Exception) {
+            addLog("⚠️ 通知失败: ${e.message}")
+        }
     }
 }

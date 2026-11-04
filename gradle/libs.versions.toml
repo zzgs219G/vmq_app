@@ -13,6 +13,10 @@ coroutines = "1.10.1"
 media3 = "1.5.1"
 ktor = "3.0.3"
 coil = "3.0.0"
+room = "2.8.4"
+# KSP 版本必须与 Kotlin 版本严格对应：2.1.0-1.0.29 ←→ Kotlin 2.1.0
+# 用 2.3.11 会报 KotlinJvmCompilerOptions.getJvmDefault 不存在
+ksp = "2.1.0-1.0.29"
 
 [libraries]
 # AndroidX 基础
@@ -69,6 +73,11 @@ ackpine-ktx = { group = "ru.solrudev.ackpine", name = "ackpine-ktx", version = "
 keval = { group = "com.notkamui.libs", name = "keval", version = "1.1.1" }
 slf4j-nop = { group = "org.slf4j", name = "slf4j-nop", version = "2.0.16" }
 
+# Room（本地账本持久化）
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+
 [bundles]
 compose-ui-core = [
     "androidx-compose-ui",
@@ -98,3 +107,4 @@ android-application = { id = "com.android.application", version.ref = "agp" }
 jetbrains-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

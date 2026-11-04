@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 val keystorePropsFile = rootProject.file("release.properties")
@@ -20,7 +21,7 @@ if (keystorePropsFile.exists()) {
 }
 
 android {
-    namespace = "com.xixin.lian"
+    namespace = "com.xixin.vmq"
     compileSdk = libs.versions.compileSdk.get().toInt()
     
     lint {
@@ -29,11 +30,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.xixin.lian"
+        applicationId = "com.xixin.vmq"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.compileSdk.get().toInt()
-        versionCode = 102
-        versionName = "1.0.2"
+        // 包名从 com.xixin.lian 变更为 com.xixin.vmq（旧签名私钥已泄露，需换包名彻底隔离）。
+        // 新应用与旧版不共享数据，老用户需重新安装并重填配置。
+        versionCode = 1
+        versionName = "2.0.0"
 
         vectorDrawables { useSupportLibrary = true }
         // 极致瘦身：只保留中文资源
@@ -89,6 +92,15 @@ android {
 }
 
 dependencies {
+    // 本地账本（Room）
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // 单元测试：只覆盖纯逻辑（解析规则、金额换算）。
+    // 这类函数写错了不会崩溃，只会静默算错账，必须靠测试兜住。
+    testImplementation("junit:junit:4.13.2")
+
     // Compose BOM 和核心 UI
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose.ui.core)

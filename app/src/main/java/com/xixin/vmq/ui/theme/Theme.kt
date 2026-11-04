@@ -1,4 +1,4 @@
-package com.xixin.lian.ui.theme
+package com.xixin.vmq.ui.theme
 
 import android.app.Activity
 import android.os.Build
