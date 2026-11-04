@@ -80,6 +80,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # git 中的 gradlew 可能丢失执行位（本项目曾是如此：100644），
+      # 直接 ./gradlew 会 Permission denied。这里显式补齐，不依赖仓库权限位。
+      - name: 修正 gradlew 执行权限
+        run: |
+          chmod +x gradlew
+          ls -l gradlew
+
       # ---------- 计算版本号 ----------
       # 来源优先级：标签 > 后缀参数 > build.gradle.kts 原值
       - name: 计算版本号
@@ -228,10 +235,16 @@ jobs:
           echo "📋 日志模式：${GRADLE_LOG_FLAGS:-快速（精简）}"
 
           # 「全部」模式时 GRADLE_TASK 含两个任务，不能加引号，需按空格分词
+          #
+          # --no-configuration-cache：gradle.properties 里开了 configuration-cache=true，
+          #   但 CI 是单次干净构建，配置缓存没有复用收益，反而在
+          #   「Environment variables / Secrets 变化」时容易触发
+          #   「configuration cache cannot be reused」类报错。这里显式关闭。
           # shellcheck disable=SC2086
-          ./gradlew ${GRADLE_TASK} \
+          sh ./gradlew ${GRADLE_TASK} \
             -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" \
-            --stacktrace --console=plain --build-cache ${GRADLE_LOG_FLAGS} \
+            --no-configuration-cache \
+            --stacktrace --console=plain ${GRADLE_LOG_FLAGS} \
             2>&1 | tee build-log/gradle.log
 
       # ---------- 单元测试 ----------
@@ -241,7 +254,8 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew testDebugUnitTest \
+          sh ./gradlew testDebugUnitTest \
+            --no-configuration-cache \
             --stacktrace --console=plain \
             2>&1 | tee -a build-log/gradle.log
 

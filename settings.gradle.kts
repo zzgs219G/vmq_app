@@ -17,6 +17,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "v免签监控"  
+rootProject.name = "vmq-monitor"
 
 include(":app")
