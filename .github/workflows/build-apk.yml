@@ -1,0 +1,394 @@
+name: 云端打包 APK
+
+# ============================================================
+#   V免签监控 · 云端打包流水线（GitHub Actions）
+#
+#   触发方式：
+#    ① 手动触发 —— GitHub 网页：Actions → 云端打包 APK → Run workflow
+#    ② 打标签触发 —— git tag v2.0.0 && git push origin v2.0.0
+#       自动按「正式版」打包，版本名从标签取（v2.0.0 → 2.0.0）
+#    ③ 推送 main/dev 分支时自动跑一次「测试版」，仅验证能否编译
+#
+#   版本号来源：app/build.gradle.kts 里的 versionName / versionCode。
+#   本项目没有独立的 version 分支，CI 不回写版本号 —— 需要改版本时
+#   直接改 build.gradle.kts 并提交。
+#
+#   产出（Artifact，在运行结果页面底部下载）：
+#    - V免签监控-正式版-*.apk / V免签监控-测试版-*.apk（含 checksums.txt）
+#    - 构建日志-*：完整 gradle 日志 + 测试报告 + 混淆映射
+#
+#   ⚠️ 签名密钥必须通过 GitHub Secrets 配置（本仓库已不再入库 keystore）：
+#      KEYSTORE_BASE64           release.keystore 的 base64
+#      KEYSTORE_STORE_PASSWORD   storePassword
+#      KEYSTORE_KEY_ALIAS        keyAlias
+#      KEYSTORE_KEY_PASSWORD     keyPassword
+#   未配置时只能出测试版（未签名），正式版会失败。
+#
+#   生成 KEYSTORE_BASE64：
+#     base64 -w0 release.keystore        （macOS 用 base64 -i release.keystore）
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 打包类型（正式版=签名发布版［默认］/ 测试版=调试版 / 全部=一次出两包）
+        required: true
+        type: choice
+        default: "正式版(release)"
+        options:
+          - "正式版(release)"
+          - "测试版(debug)"
+          - "全部(both)"
+      version_suffix:
+        description: 版本名后缀（可选，如 beta1 → 2.0.0-beta1）。留空则直接用 build.gradle.kts 里的版本
+        required: false
+        type: string
+        default: ""
+      log_level:
+        description: 日志模式（快速=精简更快 / 详细=完整日志排查用）
+        required: true
+        type: choice
+        default: "快速模式"
+        options:
+          - "快速模式"
+          - "详细模式"
+  push:
+    tags:
+      - "v*"
+    branches:
+      - main
+      - dev
+
+# 同一时间只跑一个打包，避免重复构建
+concurrency:
+  group: cloud-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 云端打包
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ---------- 计算版本号 ----------
+      # 来源优先级：标签 > 后缀参数 > build.gradle.kts 原值
+      - name: 计算版本号
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          SUFFIX: ${{ inputs.version_suffix }}
+        run: |
+          set -euo pipefail
+
+          # 从 build.gradle.kts 读取当前版本
+          GRADLE_FILE="app/build.gradle.kts"
+          CUR_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' "$GRADLE_FILE" | head -n1 || true)
+          CUR_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' "$GRADLE_FILE" | head -n1 || true)
+          [ -n "$CUR_NAME" ] || { echo "❌ 未能从 $GRADLE_FILE 读取 versionName"; exit 1; }
+          [ -n "$CUR_CODE" ] || { echo "❌ 未能从 $GRADLE_FILE 读取 versionCode"; exit 1; }
+          echo "当前版本（build.gradle.kts）：$CUR_NAME / $CUR_CODE"
+
+          VERSION_NAME="$CUR_NAME"
+          VERSION_CODE="$CUR_CODE"
+          SOURCE="build.gradle.kts"
+
+          # 标签构建：v2.0.0 → 2.0.0
+          if [ "$EVENT_NAME" = "push" ] && [[ "$TAG_NAME" == v* ]]; then
+            TV="${TAG_NAME#v}"
+            if [[ "$TV" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              VERSION_NAME="$TV"
+              SOURCE="tag"
+            else
+              echo "❌ 标签名 '$TAG_NAME' 无法解析版本号，需为 vX.Y.Z"
+              exit 1
+            fi
+          elif [ -n "${SUFFIX:-}" ]; then
+            VERSION_NAME="${CUR_NAME}-${SUFFIX}"
+            SOURCE="suffix"
+          fi
+
+          {
+            echo "VERSION_NAME=$VERSION_NAME"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "VERSION_SOURCE=$SOURCE"
+          } >> "$GITHUB_ENV"
+
+          echo "✔ 版本名称=$VERSION_NAME  版本号=$VERSION_CODE  来源=$SOURCE"
+
+      # ---------- 确定打包类型 ----------
+      - name: 确定打包类型
+        run: |
+          BT="${{ inputs.build_type }}"
+
+          # 标签构建一律出正式版；分支推送只出测试版（验证能否编译）
+          if [ "${{ github.event_name }}" = "push" ]; then
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              BT="正式版(release)"
+            else
+              BT="测试版(debug)"
+            fi
+          fi
+          [ -n "$BT" ] || BT="正式版(release)"
+
+          if [ "$BT" = "正式版(release)" ]; then
+            echo "GRADLE_TASK=assembleRelease" >> "$GITHUB_ENV"
+            echo "PKG_TYPE=正式版" >> "$GITHUB_ENV"
+          elif [ "$BT" = "全部(both)" ]; then
+            echo "GRADLE_TASK=assembleDebug assembleRelease" >> "$GITHUB_ENV"
+            echo "PKG_TYPE=全部" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE_TASK=assembleDebug" >> "$GITHUB_ENV"
+            echo "PKG_TYPE=测试版" >> "$GITHUB_ENV"
+          fi
+          echo "✔ 打包类型=$PKG_TYPE  任务=$GRADLE_TASK"
+
+      - name: 设置 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 设置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 设置 Gradle 缓存（加速后续打包）
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+          add-job-summary: on-failure
+
+      # ---------- 签名密钥 ----------
+      # 本仓库已把 release.keystore / release.properties 移出版本库
+      # （旧私钥曾泄露，详情见 README），因此签名只能从 Secrets 注入。
+      # ---------- 签名配置 ----------
+      # 本仓库将 release.keystore + release.properties 入库，因此云端构建开箱即出签名包。
+      # 若配置了 Secrets 则优先用 Secrets（更安全，便于后续把私钥移出仓库）。
+      - name: 准备签名配置
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.KEYSTORE_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEYSTORE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEYSTORE_KEY_PASSWORD }}
+        run: |
+          set -e
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+            {
+              echo "storeFile=release.keystore"
+              echo "storePassword=$STORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > release.properties
+            echo "✔ 已从 Secrets 注入签名密钥（优先于仓库内文件）"
+          elif [ -f release.properties ] && [ -f release.keystore ]; then
+            echo "✔ 使用仓库内的 release.keystore / release.properties"
+          else
+            echo "❌ 未找到签名配置（release.keystore + release.properties）"
+            echo "   正式版产出将无法安装。请确认文件已提交，或配置 4 个 Secrets："
+            echo "   KEYSTORE_BASE64 / KEYSTORE_STORE_PASSWORD / KEYSTORE_KEY_ALIAS / KEYSTORE_KEY_PASSWORD"
+            if [[ "$GRADLE_TASK" == *assembleRelease* ]]; then
+              exit 1
+            fi
+          fi
+
+      # ---------- 正式打包 ----------
+      - name: "🏗️ 执行打包：${{ env.GRADLE_TASK }}"
+        shell: bash
+        env:
+          APP_VERSION_NAME: ${{ env.VERSION_NAME }}
+          APP_VERSION_CODE: ${{ env.VERSION_CODE }}
+        run: |
+          # 项目路径含非 ASCII 字符（克隆仓库x）会导致 Kotlin 编译器
+          # 把路径编码成 u514Bu9686... 从而「源文件全部找不到」。
+          # CI 的 checkout 路径是 ASCII，这里显式断言，避免换 runner 后踩坑。
+          if printf '%s' "$PWD" | grep -qP '[^\x00-\x7F]'; then
+            echo "❌ 工作目录含非 ASCII 字符，Kotlin 编译会失败：$PWD"
+            exit 1
+          fi
+
+          mkdir -p build-log
+          echo "===== 开始打包：${GRADLE_TASK} | 版本 ${VERSION_NAME}(${VERSION_CODE}) ====="
+          set -o pipefail
+
+          if [ "${{ inputs.log_level }}" = "详细模式" ]; then
+            GRADLE_LOG_FLAGS="--info --warning-mode all"
+          else
+            GRADLE_LOG_FLAGS=""
+          fi
+          echo "📋 日志模式：${GRADLE_LOG_FLAGS:-快速（精简）}"
+
+          # 「全部」模式时 GRADLE_TASK 含两个任务，不能加引号，需按空格分词
+          # shellcheck disable=SC2086
+          ./gradlew ${GRADLE_TASK} \
+            -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g" \
+            --stacktrace --console=plain --build-cache ${GRADLE_LOG_FLAGS} \
+            2>&1 | tee build-log/gradle.log
+
+      # ---------- 单元测试 ----------
+      # 解析规则与金额换算写错了不会崩溃、只会静默算错账，必须跑。
+      - name: 🧪 单元测试
+        if: success()
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew testDebugUnitTest \
+            --stacktrace --console=plain \
+            2>&1 | tee -a build-log/gradle.log
+
+      # ---------- 整理产物 ----------
+      - name: 📦 整理 APK 产物
+        if: success()
+        run: |
+          set -e
+          case "$GRADLE_TASK" in
+            assembleRelease)
+              APK_DIRS="app/build/outputs/apk/release" ;;
+            "assembleDebug assembleRelease")
+              APK_DIRS="app/build/outputs/apk/release app/build/outputs/apk/debug" ;;
+            *)
+              APK_DIRS="app/build/outputs/apk/debug" ;;
+          esac
+          mkdir -p dist
+          SHA=$(git rev-parse --short HEAD)
+          DATE=$(date +%Y%m%d-%H%M)
+          COUNT=0
+          for APK_DIR in $APK_DIRS; do
+            case "$APK_DIR" in
+              *release*) TYPE="正式版" ;;
+              *) TYPE="测试版" ;;
+            esac
+            for f in "$APK_DIR"/*.apk; do
+              [ -e "$f" ] || continue
+              BASE="V免签监控-${TYPE}-v${VERSION_NAME}_${VERSION_CODE}-${DATE}-${SHA}"
+              cp "$f" "dist/${BASE}.apk"
+              echo "✔ 产物：dist/${BASE}.apk"
+              COUNT=$((COUNT+1))
+            done
+          done
+          if [ "$COUNT" -eq 0 ]; then
+            echo "❌ 未生成 APK，请查看日志：$APK_DIRS"
+            exit 1
+          fi
+          sha256sum dist/*.apk > dist/checksums.txt
+          echo "---- 产物清单 ----"
+          ls -lh dist/
+
+          # ---------- 校验签名 ----------
+          # 未签名的 APK 也能构建成功，但用户装不上。
+          # 这里显式判断，避免「流水线绿了、发出去装不了」。
+          #
+          # ⚠️ 不能用 `unzip -l | grep META-INF/*.RSA` 判断：
+          #    现代 AGP 默认用 v2/v3 签名方案，签名信息在 APK Signing Block 里，
+          #    不产生 META-INF 下的签名文件。那种判断会把已签名的包误报为未签名。
+          #    正确做法是用 apksigner verify。
+          if [[ "$GRADLE_TASK" == *assembleRelease* ]]; then
+            echo ""
+            echo "---- 签名校验 ----"
+            APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f 2>/dev/null | sort | tail -1)
+            if [ -z "$APKSIGNER" ]; then
+              echo "⚠️ 找不到 apksigner，跳过签名校验"
+            else
+              for apk in dist/V免签监控-正式版-*.apk; do
+                [ -e "$apk" ] || continue
+                if "$APKSIGNER" verify "$apk" >/dev/null 2>&1; then
+                  echo "✔ 已签名：$(basename "$apk")"
+                  "$APKSIGNER" verify --print-certs "$apk" 2>/dev/null | head -3 || true
+                else
+                  echo "❌ 未签名或签名无效：$(basename "$apk")"
+                  echo "   请检查 keystore Secrets 是否配置正确，或 release.properties 是否被正确读取"
+                  exit 1
+                fi
+              done
+            fi
+          fi
+
+      - name: ⬆️ 上传 APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "V免签监控-${{ env.PKG_TYPE }}-v${{ env.VERSION_NAME }}"
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+      # ---------- 收集 Gradle daemon 日志（成功/失败都收集） ----------
+      - name: 📋 收集 Gradle daemon 日志
+        if: always()
+        run: |
+          mkdir -p build-log/daemon
+          cp -f "$HOME"/.gradle/daemon/*/*.out.log build-log/daemon/ 2>/dev/null || true
+          ls -la build-log/daemon/ 2>/dev/null || true
+
+      # ---------- 上传完整构建日志 ----------
+      - name: ⬆️ 上传完整构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "构建日志-${{ env.PKG_TYPE }}-v${{ env.VERSION_NAME }}"
+          path: |
+            build-log/
+            app/build/reports/
+            app/build/outputs/mapping/
+            app/build/outputs/logs/
+          if-no-files-found: warn
+          retention-days: 7
+
+      # ---------- 失败时生成精简报错摘要 ----------
+      - name: 🐞 生成精简报错摘要
+        if: failure()
+        shell: bash
+        run: |
+          LOG="build-log/gradle.log"
+          SUM="build-log/error-summary.txt"
+          mkdir -p build-log
+          {
+            echo "========== V免签监控构建失败 · 精简摘要（完整日志见同目录 gradle.log） =========="
+            echo ""
+            echo "===== ① 失败的任务 ====="
+            grep -nE "> Task .*FAILED" "$LOG" 2>/dev/null | head -20 || true
+            echo ""
+            echo "===== ② Kotlin 编译错误 ====="
+            grep -nE "^e: " "$LOG" 2>/dev/null | head -60 || true
+            echo ""
+            echo "===== ③ KSP / Room 错误 ====="
+            grep -nE "kspDebug|Room|Schema export|cannot find symbol" "$LOG" 2>/dev/null | head -30 || true
+            echo ""
+            echo "===== ④ 根因（What went wrong / Caused by）====="
+            grep -nA8 "What went wrong:" "$LOG" 2>/dev/null | head -50 || true
+            grep -nE "Caused by" "$LOG" 2>/dev/null | head -15 || true
+            echo ""
+            echo "===== ⑤ 依赖解析失败 ====="
+            grep -nE "Could not resolve|Failed to resolve|Could not find|Unresolved reference|no matching" "$LOG" 2>/dev/null | head -20 || true
+            echo ""
+            echo "===== ⑥ 单元测试失败 ====="
+            grep -nE "FAILED|tests completed" "$LOG" 2>/dev/null | head -20 || true
+          } | tee "$SUM"
+          echo ""
+          echo "✅ 精简摘要已生成（随「构建日志-*」Artifact 上传）：$SUM"
+          echo "   $(wc -l < "$SUM") 行 · $(du -h "$SUM" | cut -f1)"
+
+      # ---------- 汇总结果 ----------
+      - name: 📊 构建结果汇总
+        if: always()
+        run: |
+          {
+            echo "## 构建结果"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 状态 | ${{ job.status }} |"
+            echo "| 版本 | ${VERSION_NAME} (${VERSION_CODE}) |"
+            echo "| 类型 | ${PKG_TYPE} |"
+            echo "| 版本来源 | ${VERSION_SOURCE} |"
+            echo "| 提交 | $(git rev-parse --short HEAD) |"
+          } >> "$GITHUB_STEP_SUMMARY"
