@@ -49,9 +49,15 @@ captures/
 .idea/navEditor.xml
 
 # Keystore files
-# Uncomment the following lines if you do not want to check your keystore files in.
-#*.jks
+# ⚠️ 本项目按自己的使用场景，将 release.keystore / release.properties 入库，
+#    以便云端构建零配置产出签名包（与 jian_box 的做法一致）。
+#    代价：私钥与口令对仓库可见。若要转为安全模式，改为 GitHub Secrets 注入
+#    （.github/workflows/build-apk.yml 已支持），并把下面几行取消注释。
+*.jks
 #*.keystore
+#release.properties
+keystore.properties
+signing.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
@@ -81,3 +87,9 @@ lint/generated/
 lint/outputs/
 lint/tmp/
 # lint/reports/
+
+# IDE 缓存与本地会话文件（不应入库）
+.androidide/
+.cg/
+.kotlin/
+*.salive
