@@ -7,7 +7,9 @@ name: 云端打包 APK
 #    ① 手动触发 —— GitHub 网页：Actions → 云端打包 APK → Run workflow
 #    ② 打标签触发 —— git tag v2.0.0 && git push origin v2.0.0
 #       自动按「正式版」打包，版本名从标签取（v2.0.0 → 2.0.0）
-#    ③ 推送 main/dev 分支时自动跑一次「测试版」，仅验证能否编译
+#
+#   注意：普通 push 不触发。每次提交都跑完整构建既慢又浪费配额，
+#   需要出包时手动点一下即可。
 #
 #   版本号来源：app/build.gradle.kts 里的 versionName / versionCode。
 #   本项目没有独立的 version 分支，CI 不回写版本号 —— 需要改版本时
@@ -56,9 +58,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - main
-      - dev
 
 # 同一时间只跑一个打包，避免重复构建
 concurrency:
@@ -165,8 +164,63 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: 设置 Android SDK
-        uses: android-actions/setup-android@v3
+      # ---------- Android SDK ----------
+      # 不能用 android-actions/setup-android@v3：它内部会执行
+      #   sdkmanager "tools" "platform-tools"
+      # 但 "tools" 包在新版 SDK 仓库中已不存在（被拆成 build-tools 等），
+      # 结果必然报 `Warning: Failed to find package 'tools'` + exit code 1。
+      # ubuntu-latest runner 本身预装了 Android SDK（含 platform-tools 与 build-tools），
+      # 这里只需定位其路径并写入环境变量；缺什么由 Gradle 自己按 AGP 要求下载。
+      - name: 定位 Android SDK
+        run: |
+          set -e
+          # runner 预装的 SDK 位置（GitHub 官方 ubuntu 镜像固定为 /usr/local/lib/android/sdk）
+          for d in "$ANDROID_SDK_ROOT" "$ANDROID_HOME" /usr/local/lib/android/sdk; do
+            if [ -n "$d" ] && [ -d "$d/platform-tools" ]; then
+              SDK="$d"; break
+            fi
+          done
+          if [ -z "${SDK:-}" ]; then
+            echo "❌ 未找到预装的 Android SDK，检查 runner 镜像"
+            ls -la /usr/local/lib/android 2>/dev/null || true
+            exit 1
+          fi
+          echo "✔ Android SDK: $SDK"
+          {
+            echo "ANDROID_SDK_ROOT=$SDK"
+            echo "ANDROID_HOME=$SDK"
+          } >> "$GITHUB_ENV"
+          {
+            echo "sdk.dir=$SDK"
+          } > local.properties
+          echo "--- local.properties ---"
+          cat local.properties
+          echo "--- 已安装的 build-tools ---"
+          ls "$SDK/build-tools" 2>/dev/null || echo "(无)"
+          echo "--- 已安装的 platforms ---"
+          ls "$SDK/platforms" 2>/dev/null || echo "(无)"
+
+      # compileSdk 为 36，runner 预装的不一定包含该 platform。
+      # Gradle 会在构建时自动下载缺失的 platform，但前提是 license 已接受。
+      # 这里预先接受 license，避免构建中途卡在 "licence not accepted"。
+      - name: 接受 Android SDK 许可
+        run: |
+          set -e
+          SDK="$ANDROID_SDK_ROOT"
+          SDKMGR=$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | sort | tail -1)
+          if [ -z "$SDKMGR" ]; then
+            echo "⚠️ 未找到 sdkmanager，跳过（Gradle 自带 license 处理）"
+            exit 0
+          fi
+          echo "sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          echo "✔ license 已接受"
+          # 显式安装 compileSdk 对应的 platform，避免构建期才发现缺失
+          COMPILE_SDK=$(grep -oP 'compileSdk\s*=\s*"\K[0-9]+' gradle/libs.versions.toml | head -1 || echo "36")
+          echo "compileSdk = $COMPILE_SDK"
+          "$SDKMGR" "platforms;android-${COMPILE_SDK}" "build-tools;${COMPILE_SDK}.0.0" > /dev/null 2>&1 \
+            || echo "⚠️ 指定版本不可用，交由 Gradle 自动解析"
+          echo "✔ SDK 准备完成"
 
       - name: 设置 Gradle 缓存（加速后续打包）
         uses: gradle/actions/setup-gradle@v4
