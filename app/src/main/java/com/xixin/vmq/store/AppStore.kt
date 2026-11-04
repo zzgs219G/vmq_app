@@ -15,7 +15,22 @@ object AppStore {
     private const val PREFS_NAME = "v_mq_settings"
     private const val KEY_ENDPOINT = "api_endpoint"
     private const val KEY_SECRET = "secret_key"
-    
+    private const val KEY_ADMIN_PWD = "admin_password"
+
+    /**
+     * 后台密码预填值。
+     *
+     * ⚠️ 这不是「默认密钥兜底」，二义性要说清：
+     *  - 推送密钥 [secretKey] 仍然默认为空 —— 那个值缺失时必须显式报错，
+     *    否则会出现「装完即可用、但其实配置错了」的假象（旧版本的坑）。
+     *  - 后台密码只是**预填**，用户随时可在设置里改。
+     *    它只用于读取订单列表做对账，读不到只会让订单页不可用，
+     *    不会影响收款推送与发卡这条主链路。
+     *
+     * 服务端对应的 ADMIN_PASSWORD 若被轮换，这里也需要同步修改。
+     */
+    private const val DEFAULT_ADMIN_PASSWORD = "245818"
+
     // 【关键修复】：更改 Channel ID (加了 _v2 后缀)。
     // 强制系统重新创建一个全新的、重要级别为 DEFAULT 的通知渠道，这样状态栏左上角就必定有图标了！
     const val CHANNEL_MONITOR = "monitor_foreground_v2"
@@ -26,7 +41,20 @@ object AppStore {
     // 不做任何默认值兜底：未配置时就是空串，让上层显式报错。
     // 旧版本此处默认给了与后端相同的密钥，会造成“装完即可用”的假象。
     val apiEndpoint = MutableStateFlow("")
+
+    /**
+     * 推送签名密钥，对应服务端环境变量 APP_SECRET。
+     *
+     * ⚠️ 它与 [adminPassword] 是**两个不同的值**，不要混用：
+     *  - APP_SECRET     用于收款推送的 HMAC 签名
+     *  - ADMIN_PASSWORD 用于管理端接口的鉴权
+     * 旧版本只有一个字段同时充当两者，只要后端把这两个值设成不同，
+     * 就必然有一半功能失败。
+     */
     val secretKey = MutableStateFlow("")
+
+    /** 后台管理密码，对应服务端环境变量 ADMIN_PASSWORD。用于拉取订单列表。 */
+    val adminPassword = MutableStateFlow(DEFAULT_ADMIN_PASSWORD)
 
     private val _logs = MutableStateFlow<List<String>>(listOf("系统就绪，等待权限..."))
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
@@ -65,6 +93,7 @@ object AppStore {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             apiEndpoint.value = prefs?.getString(KEY_ENDPOINT, "") ?: ""
             secretKey.value = prefs?.getString(KEY_SECRET, "") ?: ""
+            adminPassword.value = prefs?.getString(KEY_ADMIN_PWD, DEFAULT_ADMIN_PASSWORD) ?: DEFAULT_ADMIN_PASSWORD
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -100,6 +129,11 @@ object AppStore {
     fun updateSecret(key: String) {
         secretKey.value = key
         prefs?.edit()?.putString(KEY_SECRET, key)?.apply()
+    }
+
+    fun updateAdminPassword(pwd: String) {
+        adminPassword.value = pwd
+        prefs?.edit()?.putString(KEY_ADMIN_PWD, pwd)?.apply()
     }
 
     fun addLog(msg: String) {

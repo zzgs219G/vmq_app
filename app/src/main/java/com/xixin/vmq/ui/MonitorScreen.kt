@@ -46,6 +46,7 @@ fun MonitorScreen() {
     val logs by AppStore.logs.collectAsState()
     val endpoint by AppStore.apiEndpoint.collectAsState()
     val secretKey by AppStore.secretKey.collectAsState()
+    val adminPassword by AppStore.adminPassword.collectAsState()
 
     val hasPermission by AppStore.hasListenerPermission.collectAsState()
     val hasNotification by AppStore.hasNotificationPermission.collectAsState()
@@ -169,6 +170,7 @@ fun MonitorScreen() {
             SettingsPanel(
                 endpoint = endpoint,
                 secretKey = secretKey,
+                adminPassword = adminPassword,
                 onSave = { showSettingsSheet = false }
             )
         }
@@ -233,10 +235,16 @@ fun QuickTestCard() {
 }
 
 @Composable
-fun SettingsPanel(endpoint: String, secretKey: String, onSave: () -> Unit) {
+fun SettingsPanel(
+    endpoint: String,
+    secretKey: String,
+    adminPassword: String,
+    onSave: () -> Unit
+) {
     val context = LocalContext.current
     var localEndpoint by remember { mutableStateOf(endpoint) }
     var localSecret by remember { mutableStateOf(secretKey) }
+    var localAdminPwd by remember { mutableStateOf(adminPassword) }
     val scope = rememberCoroutineScope()
 
     var testing by remember { mutableStateOf(false) }
@@ -271,7 +279,7 @@ fun SettingsPanel(endpoint: String, secretKey: String, onSave: () -> Unit) {
         OutlinedTextField(
             value = localSecret,
             onValueChange = { localSecret = it },
-            label = { Text("通讯密钥") },
+            label = { Text("推送密钥 (APP_SECRET)") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
@@ -279,7 +287,26 @@ fun SettingsPanel(endpoint: String, secretKey: String, onSave: () -> Unit) {
             shape = RoundedCornerShape(12.dp)
         )
         Text(
-            "必须与服务端环境变量 APP_SECRET 完全一致，否则会被签名校验拦截（401）",
+            "对应服务端环境变量 APP_SECRET。用于收款推送签名，不一致会被拦（401）",
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = localAdminPwd,
+            onValueChange = { localAdminPwd = it },
+            label = { Text("后台密码 (ADMIN_PASSWORD)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            shape = RoundedCornerShape(12.dp)
+        )
+        Text(
+            "对应服务端环境变量 ADMIN_PASSWORD。用于拉取订单列表做对账，可留空（留空则订单页不可用）",
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp, start = 4.dp)
@@ -366,7 +393,7 @@ fun SettingsPanel(endpoint: String, secretKey: String, onSave: () -> Unit) {
                 val ep = localEndpoint.trim()
                 val sk = localSecret.trim()
                 if (ep.isEmpty() || sk.isEmpty()) {
-                    Toast.makeText(context, "API 地址与通讯密钥均不能为空", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "API 地址与推送密钥均不能为空", Toast.LENGTH_SHORT).show()
                     return@Button
                 }
                 if (!ep.startsWith("https://")) {
@@ -375,6 +402,7 @@ fun SettingsPanel(endpoint: String, secretKey: String, onSave: () -> Unit) {
                 }
                 AppStore.updateEndpoint(ep)
                 AppStore.updateSecret(sk)
+                AppStore.updateAdminPassword(localAdminPwd.trim())
                 onSave() // 保存并关闭面板
             },
             modifier = Modifier.fillMaxWidth().height(50.dp),

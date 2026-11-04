@@ -118,7 +118,7 @@ object OrderSyncApi {
      */
     suspend fun fetchOrders(since: Long = 0L): OrdersResult = withContext(Dispatchers.IO) {
         val pushUrl = AppStore.apiEndpoint.value.trim()
-        val pwd = AppStore.secretKey.value.trim()
+        val pwd = AppStore.adminPassword.value.trim()
 
         if (pushUrl.isEmpty() || pwd.isEmpty()) return@withContext OrdersResult.NotConfigured
         if (!pushUrl.startsWith("https://")) {
