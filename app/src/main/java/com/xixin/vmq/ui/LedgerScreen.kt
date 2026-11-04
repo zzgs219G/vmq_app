@@ -94,6 +94,20 @@ fun LedgerScreen() {
                     { Icon(Icons.Default.PendingActions, null, Modifier.size(16.dp)) }
                 } else null
             )
+            // 方向已判定的记录可以批量确认，省去逐条点击。
+            // 只对 direction 明确（非 UNKNOWN）的记录生效 —— 方向不明的必须人工判断。
+            if (tab == 0 && pending.count { it.direction != Txn.Direction.UNKNOWN } >= 2) {
+                AssistChip(
+                    onClick = {
+                        pending.filter { it.direction != Txn.Direction.UNKNOWN }
+                            .forEach { vm.confirm(it.id, null) }
+                    },
+                    label = { Text("全部确认", fontSize = 12.sp) },
+                    leadingIcon = {
+                        Icon(Icons.Default.DoneAll, null, Modifier.size(15.dp))
+                    }
+                )
+            }
             FilterChip(
                 selected = tab == 1,
                 onClick = { tab = 1 },
@@ -345,26 +359,46 @@ private fun PendingTxnCard(
             }
 
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onConfirmIn,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) { Text("记为收入", fontSize = 12.sp) }
 
-                OutlinedButton(
-                    onClick = onConfirmOut,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) { Text("记为支出", fontSize = 12.sp) }
+            // 方向已确定的记录只需一次点击「确认入账」，不必在两个按钮间选。
+            // 原实现无论方向是否明确都摆两个按钮，用户每笔都要判断按哪个，负担过重。
+            if (txn.direction == Txn.Direction.UNKNOWN) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onConfirmIn,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) { Text("记为收入", fontSize = 12.sp) }
 
-                TextButton(
-                    onClick = onIgnore,
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
-                ) { Text("忽略", fontSize = 12.sp) }
+                    OutlinedButton(
+                        onClick = onConfirmOut,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) { Text("记为支出", fontSize = 12.sp) }
+
+                    TextButton(
+                        onClick = onIgnore,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp)
+                    ) { Text("忽略", fontSize = 12.sp) }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { if (txn.direction == Txn.Direction.OUT) onConfirmOut() else onConfirmIn() },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) { Text("确认入账", fontSize = 12.sp) }
+
+                    TextButton(
+                        onClick = onIgnore,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) { Text("忽略", fontSize = 12.sp) }
+                }
             }
 
             if (txn.note.isNotBlank()) {

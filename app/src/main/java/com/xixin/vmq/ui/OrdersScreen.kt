@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -257,45 +258,80 @@ private fun SuspiciousSection(
 
 @Composable
 private fun OrderCard(o: RemoteOrder) {
-    val (statusText, statusColor) = when {
-        o.isPaid -> "已发货" to MaterialTheme.colorScheme.primary
-        o.isExpired -> "已过期" to MaterialTheme.colorScheme.onSurfaceVariant
-        else -> "待付款" to MaterialTheme.colorScheme.error
+    // 状态配色：过期用低饱和的灰蓝而非 onSurfaceVariant ——
+    // 后者与卡片背景 surfaceVariant 对比度过低，几乎看不出标签。
+    val statusBg: Color
+    val statusFg: Color
+    val statusText: String
+    when {
+        o.isPaid -> {
+            statusText = "已发货"
+            statusBg = Color(0xFF10B981).copy(alpha = 0.15f)
+            statusFg = Color(0xFF059669)
+        }
+        o.isExpired -> {
+            statusText = "已过期"
+            statusBg = Color(0xFF64748B).copy(alpha = 0.18f)
+            statusFg = Color(0xFF475569)
+        }
+        else -> {
+            statusText = "待付款"
+            statusBg = Color(0xFFF59E0B).copy(alpha = 0.18f)
+            statusFg = Color(0xFFB45309)
+        }
     }
+
+    // 过期订单整体降低不透明度，让「已发货/待付款」在列表里更突出
+    val contentAlpha = if (o.isExpired) 0.55f else 1f
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(
+            containerColor = if (o.isExpired)
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            else MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 左侧状态色条：不用读文字也能一眼分辨
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(36.dp)
+                    .background(statusFg.copy(alpha = if (o.isExpired) 0.5f else 1f), RoundedCornerShape(2.dp))
+            )
+            Spacer(Modifier.width(12.dp))
+
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "¥${o.payPrice}",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Black,
-                        color = statusColor
+                        color = if (o.isExpired)
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        else MaterialTheme.colorScheme.onSurface
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         statusText,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = statusColor,
+                        color = statusFg,
                         modifier = Modifier
-                            .background(statusColor.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                            .background(statusBg, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
                 Spacer(Modifier.height(3.dp))
                 Text(
                     o.productName,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
                     maxLines = 1
                 )
                 Spacer(Modifier.height(2.dp))
@@ -307,7 +343,7 @@ private fun OrderCard(o: RemoteOrder) {
                     },
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f * contentAlpha)
                 )
             }
         }
