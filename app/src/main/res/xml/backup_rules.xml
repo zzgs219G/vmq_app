@@ -1,13 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older that API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  通讯密钥存在 SharedPreferences(v_mq_settings) 里。
+  云备份会把 sharedpref 一起上传到云端，等同于把密钥备份出去，因此这里显式排除。
 -->
 <full-backup-content>
-  <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="v_mq_settings.xml" />
+    <exclude domain="sharedpref" path="." />
 </full-backup-content>

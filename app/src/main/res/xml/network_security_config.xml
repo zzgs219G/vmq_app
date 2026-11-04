@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  禁止明文流量：API 地址与通讯密钥不得通过 http:// 传输。
+  后端已强制 https://（见 KtorClient.doPush 的前置校验），这里从系统层再兜一道。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
