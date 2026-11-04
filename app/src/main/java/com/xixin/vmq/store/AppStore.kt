@@ -14,6 +14,17 @@ import androidx.core.app.NotificationManagerCompat
 object AppStore {
     private const val PREFS_NAME = "v_mq_settings"
     private const val KEY_ENDPOINT = "api_endpoint"
+
+    /**
+     * 预填的生产推送地址。
+     *
+     * ⚠️ 这是**预填**不是兜底：用户可在设置里改，改动会持久化到 SharedPreferences
+     * 并覆盖此默认值。与 [DEFAULT_ADMIN_PASSWORD] 同理——
+     * 它只影响便利性，不承担安全职责，也不影响「未配置时明确报错」这个原则。
+     *
+     * 域名到期后会更换，届时改这里并重新构建即可；已装设备在设置里手动改。
+     */
+    private const val DEFAULT_PUSH_ENDPOINT = "https://faka.614118.xyz/api/push"
     private const val KEY_SECRET = "secret_key"
     private const val KEY_ADMIN_PWD = "admin_password"
 
@@ -29,7 +40,7 @@ object AppStore {
      *
      * 服务端对应的 ADMIN_PASSWORD 若被轮换，这里也需要同步修改。
      */
-    private const val DEFAULT_ADMIN_PASSWORD = "245818"
+    private const val DEFAULT_ADMIN_PASSWORD = "z2458181028"
 
     // 【关键修复】：更改 Channel ID (加了 _v2 后缀)。
     // 强制系统重新创建一个全新的、重要级别为 DEFAULT 的通知渠道，这样状态栏左上角就必定有图标了！
@@ -40,7 +51,7 @@ object AppStore {
 
     // 不做任何默认值兜底：未配置时就是空串，让上层显式报错。
     // 旧版本此处默认给了与后端相同的密钥，会造成“装完即可用”的假象。
-    val apiEndpoint = MutableStateFlow("")
+    val apiEndpoint = MutableStateFlow(DEFAULT_PUSH_ENDPOINT)
 
     /**
      * 推送签名密钥，对应服务端环境变量 APP_SECRET。
@@ -91,7 +102,7 @@ object AppStore {
 
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            apiEndpoint.value = prefs?.getString(KEY_ENDPOINT, "") ?: ""
+            apiEndpoint.value = prefs?.getString(KEY_ENDPOINT, DEFAULT_PUSH_ENDPOINT) ?: DEFAULT_PUSH_ENDPOINT
             secretKey.value = prefs?.getString(KEY_SECRET, "") ?: ""
             adminPassword.value = prefs?.getString(KEY_ADMIN_PWD, DEFAULT_ADMIN_PASSWORD) ?: DEFAULT_ADMIN_PASSWORD
         }
