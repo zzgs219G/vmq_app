@@ -174,6 +174,8 @@ object ConnDiagnostics {
         }
 
         // ---- 第二步：POST 一个签名必然错误的请求，验证密钥链路 ----
+        // dryRun=true 告诉服务端「这是连通性测试，不要告警、不要记安全日志」，
+        // 否则每次点「测试连接」都会被当成伪造推送而触发告警邮件。
         val wrongSign = "0".repeat(64)
         val postResult = try {
             val res = client.post(url) {
@@ -184,6 +186,7 @@ object ConnDiagnostics {
                         .put("type", "alipay")
                         .put("price", "0.00")
                         .put("sign", wrongSign)
+                        .put("dryRun", true)
                         .toString()
                 )
             }

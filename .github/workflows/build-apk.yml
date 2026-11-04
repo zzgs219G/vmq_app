@@ -387,7 +387,10 @@ jobs:
           name: "V免签监控-${{ env.PKG_TYPE }}-v${{ env.VERSION_NAME }}"
           path: dist/
           if-no-files-found: error
-          retention-days: 7
+          # 私有仓库产物存储只有 500MB，保留期压到 2 天：
+          # 单次产物约 13MB，2 天最多累积十几次，占用可控。
+          # 需要长期留存的包请下载到本地。
+          retention-days: 2
 
       # ---------- 收集 Gradle daemon 日志（成功/失败都收集） ----------
       - name: 📋 收集 Gradle daemon 日志
@@ -397,9 +400,11 @@ jobs:
           cp -f "$HOME"/.gradle/daemon/*/*.out.log build-log/daemon/ 2>/dev/null || true
           ls -la build-log/daemon/ 2>/dev/null || true
 
-      # ---------- 上传完整构建日志 ----------
-      - name: ⬆️ 上传完整构建日志
-        if: always()
+      # ---------- 上传构建日志 ----------
+      # 只在失败时上传：成功时日志没有留存价值，而它比 APK 大得多
+      # （gradle.log + 测试报告 + mapping 通常 5~15MB）。省下的空间留给 APK。
+      - name: ⬆️ 上传构建日志（仅失败）
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: "构建日志-${{ env.PKG_TYPE }}-v${{ env.VERSION_NAME }}"
@@ -409,7 +414,7 @@ jobs:
             app/build/outputs/mapping/
             app/build/outputs/logs/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       # ---------- 失败时生成精简报错摘要 ----------
       - name: 🐞 生成精简报错摘要
