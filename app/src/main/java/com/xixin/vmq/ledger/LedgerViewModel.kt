@@ -3,6 +3,9 @@ package com.xixin.vmq.ledger
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.xixin.vmq.network.OrderSyncApi
+import com.xixin.vmq.network.OrdersResult
+import com.xixin.vmq.network.RemoteOrder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -107,6 +110,81 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun markPushFailed(id: Long, error: String) = viewModelScope.launch {
         repo.markPushFailed(id, error)
+    }
+
+    // ---- 服务端订单同步 ----
+
+    /** 服务端订单列表 */
+    private val _orders = MutableStateFlow<List<RemoteOrder>>(emptyList())
+    val orders: StateFlow<List<RemoteOrder>> = _orders.asStateFlow()
+
+    /** 同步状态，供 UI 显示 */
+    private val _syncState = MutableStateFlow<SyncState>(SyncState.Idle)
+    val syncState: StateFlow<SyncState> = _syncState.asStateFlow()
+
+    sealed interface SyncState {
+        data object Idle : SyncState
+        data object Loading : SyncState
+        data class Success(val count: Int, val at: Long) : SyncState
+        data class Failure(val reason: String, val unauthorized: Boolean) : SyncState
+        data object NotConfigured : SyncState
+    }
+
+    /**
+     * 疑似漏发：本地收到钱、服务端却没有对应的已发货订单。
+     *
+     * 这是整套系统的核心观测点 —— 服务端无法区分「买家没付」与
+     * 「买家付了但推送失败」，只有把设备端账本拿过来比才知道。
+     */
+    val suspicious: StateFlow<List<Reconciler.Suspicious>> = combine(
+        repo.observeAll(),
+        _orders
+    ) { txns, orders ->
+        Reconciler.reconcile(Reconciler.candidates(txns), orders)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 从服务端拉取订单 */
+    fun syncOrders() = viewModelScope.launch {
+        _syncState.value = SyncState.Loading
+        when (val r = OrderSyncApi.fetchOrders()) {
+            is OrdersResult.Success -> {
+                _orders.value = r.orders
+                _syncState.value = SyncState.Success(r.orders.size, System.currentTimeMillis())
+            }
+            is OrdersResult.Failure ->
+                _syncState.value = SyncState.Failure(r.reason, r.unauthorized)
+            OrdersResult.NotConfigured ->
+                _syncState.value = SyncState.NotConfigured
+        }
+    }
+
+    /**
+     * 重推一笔疑似漏发的收款。
+     *
+     * 注意这里**不是**「人工发卡」：它走的是原有的 /api/push 推送链路，
+     * 由服务端按金额重新匹配订单并决定是否发货。
+     * 不新增任何绕过验资的发卡入口 —— 钱是既成事实，补的是那次失败的推送。
+     */
+    fun retryPush(item: Reconciler.Suspicious) = viewModelScope.launch {
+        val price = TxnParser.toYuan(item.txn.amountCents)
+        val type = when (item.txn.source) {
+            Txn.Source.WECHAT -> "wechat"
+            else -> "alipay"
+        }
+        com.xixin.vmq.network.KtorClient.retryOne(type, price, item.txn.id) { result ->
+            viewModelScope.launch {
+                when (result) {
+                    is com.xixin.vmq.network.PushResult.Success -> {
+                        repo.markPushSuccess(item.txn.id, result.orderId)
+                        syncOrders()
+                    }
+                    is com.xixin.vmq.network.PushResult.Failure ->
+                        repo.markPushFailed(item.txn.id, result.reason)
+                    com.xixin.vmq.network.PushResult.NotConfigured -> Unit
+                }
+                refreshTick.value++
+            }
+        }
     }
 
     // ---- 时间边界 ----

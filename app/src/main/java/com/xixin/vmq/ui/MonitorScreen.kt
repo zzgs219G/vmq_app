@@ -60,7 +60,14 @@ fun MonitorScreen() {
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text(if (page == 0) "V免签监控" else "收款账本", fontWeight = FontWeight.Bold) },
+                title = { Text(
+                    when (page) {
+                        0 -> "V免签监控"
+                        1 -> "收款账本"
+                        else -> "订单对账"
+                    },
+                    fontWeight = FontWeight.Bold
+                ) },
                 actions = {
                     if (page == 0) {
                         // 保活引导：本应用最容易踩的坑，给一个显眼入口
@@ -92,12 +99,24 @@ fun MonitorScreen() {
                     icon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null) },
                     label = { Text("账本", fontSize = 11.sp) }
                 )
+                NavigationBarItem(
+                    selected = page == 2,
+                    onClick = { page = 2 },
+                    icon = { Icon(Icons.Default.ReceiptLong, contentDescription = null) },
+                    label = { Text("订单", fontSize = 11.sp) }
+                )
             }
         }
     ) { paddingValues ->
         if (page == 1) {
             Box(Modifier.padding(paddingValues)) {
                 LedgerScreen()
+            }
+            return@Scaffold
+        }
+        if (page == 2) {
+            Box(Modifier.padding(paddingValues)) {
+                OrdersScreen()
             }
             return@Scaffold
         }
