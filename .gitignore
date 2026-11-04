@@ -93,3 +93,6 @@ lint/tmp/
 .cg/
 .kotlin/
 *.salive
+
+# AndroidIDE 环境偶发的 0 字节控制字符文件
+app/
