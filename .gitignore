@@ -94,5 +94,7 @@ lint/tmp/
 .kotlin/
 *.salive
 
-# AndroidIDE 环境偶发的 0 字节控制字符文件
-app/
+
+# AndroidIDE 环境下构建偶发产生名为单字节 0x01 的空文件。
+# 用 glob 排除 app 下长度为 1 的文件名（该目录只应有 .gitignore 与 build.gradle.kts）。
+app/?
