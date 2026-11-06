@@ -154,6 +154,8 @@ object AppStore {
         current.add(0, "[$time] $msg")
         if (current.size > 500) current.removeAt(current.size - 1)
         _logs.value = current
+        // 同步落盘：内存日志重启即丢，出问题时没有现场
+        com.xixin.vmq.crash.FileLogger.log(msg)
     }
 
     fun clearLogs() {

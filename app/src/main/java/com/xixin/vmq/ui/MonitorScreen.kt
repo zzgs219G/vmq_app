@@ -3,6 +3,7 @@ package com.xixin.vmq.ui
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -57,6 +58,13 @@ fun MonitorScreen() {
     var showKeepAliveSheet by remember { mutableStateOf(false) }
     // 页面切换：0=监控 1=账本
     var page by remember { mutableStateOf(0) }
+
+    // 崩溃日志：进入页面时扫一次，有则显示徽章
+    var crashFiles by remember { mutableStateOf(emptyList<java.io.File>()) }
+    var showCrashDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        crashFiles = com.xixin.vmq.crash.CrashHandler.readAll(context)
+    }
 
     Scaffold(
         topBar = {
@@ -154,7 +162,23 @@ fun MonitorScreen() {
                     Toast.makeText(context, "日志已复制", Toast.LENGTH_SHORT).show()
                 },
                 onClear = { AppStore.clearLogs() },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                onExportFull = {
+                    // 导出落盘的完整日志（含历史滚动文件），比内存里 500 条全得多
+                    val full = com.xixin.vmq.crash.FileLogger.readAll(context)
+                    if (full.isBlank()) {
+                        Toast.makeText(context, "暂无落盘日志", Toast.LENGTH_SHORT).show()
+                    } else {
+                        clipboardManager.setText(AnnotatedString(full))
+                        Toast.makeText(
+                            context,
+                            "已复制完整日志（${full.length} 字）",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                crashCount = crashFiles.size,
+                onViewCrashes = { showCrashDialog = true }
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -189,6 +213,98 @@ fun MonitorScreen() {
             )
         }
     }
+
+    if (showCrashDialog) {
+        CrashListDialog(
+            files = crashFiles,
+            onDismiss = { showCrashDialog = false },
+            onCopy = { f ->
+                val text = runCatching { f.readText() }.getOrDefault("")
+                clipboardManager.setText(AnnotatedString(text))
+                Toast.makeText(context, "已复制崩溃日志", Toast.LENGTH_SHORT).show()
+            },
+            onClearAll = {
+                com.xixin.vmq.crash.CrashHandler.clearAll(context)
+                crashFiles = emptyList()
+                showCrashDialog = false
+            }
+        )
+    }
+}
+
+/**
+ * 崩溃记录列表。
+ *
+ * 存在的理由：崩溃发生时应用已经死了，用户看不到任何信息。
+ * 只有在下次打开时把「上次崩了」这件事摆到眼前，日志才有意义。
+ */
+@Composable
+private fun CrashListDialog(
+    files: List<java.io.File>,
+    onDismiss: () -> Unit,
+    onCopy: (java.io.File) -> Unit,
+    onClearAll: () -> Unit
+) {
+    val fmt = remember { java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("崩溃记录", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            if (files.isEmpty()) {
+                Text("暂无崩溃记录", fontSize = 13.sp)
+            } else {
+                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState())) {
+                    Text(
+                        "共 ${files.size} 条。崩溃日志已保存到文件，可复制后反馈。",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    files.forEach { f ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.BugReport, null,
+                                Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    fmt.format(java.util.Date(f.lastModified())),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "${f.length() / 1024} KB",
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            TextButton(onClick = { onCopy(f) }) {
+                                Text("复制", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        },
+        dismissButton = {
+            if (files.isNotEmpty()) {
+                TextButton(onClick = onClearAll) {
+                    Text("清空", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -459,7 +575,10 @@ fun LogTerminalCard(
     logs: List<String>,
     onCopy: () -> Unit,
     onClear: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onExportFull: (() -> Unit)? = null,
+    crashCount: Int = 0,
+    onViewCrashes: (() -> Unit)? = null,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -476,7 +595,27 @@ fun LogTerminalCard(
                 Icon(Icons.Default.Terminal, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("终端日志", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                // 崩溃次数徽章：有崩溃时明确提示，避免用户以为一切正常
+                if (crashCount > 0 && onViewCrashes != null) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "$crashCount",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.error, RoundedCornerShape(6.dp))
+                            .clickable { onViewCrashes() }
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.weight(1f))
+                // 导出完整日志（含历史文件）：内存里只有 500 条，落盘的才是全量
+                if (onExportFull != null) {
+                    IconButton(onClick = onExportFull) {
+                        Icon(Icons.Default.Share, contentDescription = "导出完整日志", modifier = Modifier.size(18.dp))
+                    }
+                }
                 IconButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, contentDescription = "复制", modifier = Modifier.size(18.dp)) }
                 IconButton(onClick = onClear) { Icon(Icons.Default.DeleteSweep, contentDescription = "清空", modifier = Modifier.size(18.dp)) }
             }

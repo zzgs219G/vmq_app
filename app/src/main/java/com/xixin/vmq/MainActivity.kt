@@ -23,6 +23,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 崩溃捕获必须在任何业务代码之前注册
+        com.xixin.vmq.crash.CrashHandler.init(this)
+
         AppStore.init(this)
 
         // 用户打开应用 = 明确的「我希望它工作」信号，把意图置为 true。

@@ -44,6 +44,9 @@ class PaymentNotificationListener : NotificationListenerService() {
 
     override fun onCreate() {
         super.onCreate()
+        // 崩溃捕获必须在最早期注册：注册前的异常抓不到。
+        // 同时会初始化 FileLogger，让后续日志可落盘。
+        com.xixin.vmq.crash.CrashHandler.init(this)
         AppStore.init(this)
         AppStore.addLog("✅ 监听服务进程已创建")
     }
