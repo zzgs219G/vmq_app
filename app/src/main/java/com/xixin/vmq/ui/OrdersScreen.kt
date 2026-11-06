@@ -60,76 +60,89 @@ fun OrdersScreen() {
         if (orders.isEmpty()) vm.syncOrders()
     }
 
-    Column(
+    val shown = when (filter) {
+        1 -> orders.filter { it.isPending }
+        2 -> orders.filter { it.isPaid }
+        else -> orders
+    }.sortedByDescending { it.createTime }
+
+    // 整页用单层 LazyColumn：头部也作为 item 参与滚动。
+    // 旧实现用 Column 包头部 + LazyColumn(fillMaxSize) 包列表，
+    // 一旦「疑似漏发」卡片变高（最多列 5 条），列表区被挤成 0 高度，
+    // 而头部本身不可滚动 —— 表现为整页卡死，下面的订单一条也看不到。
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
     ) {
-        Spacer(Modifier.height(8.dp))
+        item(key = "header-top") {
+            Spacer(Modifier.height(8.dp))
+        }
 
-        // 同步状态条
-        SyncBar(syncState) { vm.syncOrders() }
+        item(key = "sync-bar") {
+            SyncBar(syncState) { vm.syncOrders() }
+        }
 
-        Spacer(Modifier.height(12.dp))
-
-        // 疑似漏发（最重要，放最上面）
         if (suspicious.isNotEmpty()) {
-            SuspiciousSection(suspicious) { item -> vm.retryPush(item) }
-            Spacer(Modifier.height(14.dp))
+            item(key = "suspicious") {
+                Spacer(Modifier.height(4.dp))
+                SuspiciousSection(
+                    items = suspicious,
+                    onRetry = { item -> vm.retryPush(item) },
+                    onIgnore = { item -> vm.ignoreSuspicious(item) }
+                )
+                Spacer(Modifier.height(6.dp))
+            }
         }
 
-        // 筛选
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(filter == 0, { filter = 0 }, { Text("全部 ${orders.size}", fontSize = 12.sp) })
-            FilterChip(
-                filter == 1, { filter = 1 },
-                { Text("待付款 ${orders.count { it.isPending }}", fontSize = 12.sp) }
-            )
-            FilterChip(
-                filter == 2, { filter = 2 },
-                { Text("已发货 ${orders.count { it.isPaid }}", fontSize = 12.sp) }
-            )
+        item(key = "filter") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(filter == 0, { filter = 0 }, { Text("全部 ${orders.size}", fontSize = 12.sp) })
+                FilterChip(
+                    filter == 1, { filter = 1 },
+                    { Text("待付款 ${orders.count { it.isPending }}", fontSize = 12.sp) }
+                )
+                FilterChip(
+                    filter == 2, { filter = 2 },
+                    { Text("已发货 ${orders.count { it.isPaid }}", fontSize = 12.sp) }
+                )
+            }
         }
-
-        Spacer(Modifier.height(8.dp))
-
-        val shown = when (filter) {
-            1 -> orders.filter { it.isPending }
-            2 -> orders.filter { it.isPaid }
-            else -> orders
-        }.sortedByDescending { it.createTime }
 
         if (shown.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.ReceiptLong, null, Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        if (orders.isEmpty()) "还没有同步到订单" else "该分类下没有订单",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    if (orders.isEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "点右上角刷新，或检查设置里的后台密码",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            item(key = "empty") {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 64.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.ReceiptLong, null, Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            if (orders.isEmpty()) "还没有同步到订单" else "该分类下没有订单",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (orders.isEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "点上方刷新，或检查设置里的后台密码",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
                     }
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(shown, key = { it.orderId }) { o -> OrderCard(o) }
-            }
+            items(shown, key = { it.orderId }) { o -> OrderCard(o) }
         }
     }
 }
@@ -179,7 +192,8 @@ private fun SyncBar(state: LedgerViewModel.SyncState, onSync: () -> Unit) {
 @Composable
 private fun SuspiciousSection(
     items: List<Reconciler.Suspicious>,
-    onRetry: (Reconciler.Suspicious) -> Unit
+    onRetry: (Reconciler.Suspicious) -> Unit,
+    onIgnore: (Reconciler.Suspicious) -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -231,6 +245,18 @@ private fun SuspiciousSection(
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text("重推", fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                        // 不是本站订单的收款（随手转账、测试金额等）永远匹配不到订单，
+                        // 没有任何自动判据能识别，必须给一个人工出口，否则红字永久残留。
+                        TextButton(
+                            onClick = { onIgnore(s) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "忽略",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f)
+                            )
                         }
                     }
                     Text(

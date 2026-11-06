@@ -52,124 +52,134 @@ fun LedgerScreen() {
     var showManualAdd by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(0) }
 
-    Column(
+    val list = if (tab == 0) pending else confirmed
+
+    // 整页单层 LazyColumn：头部（统计卡、横幅、Tab）都作为 item 参与滚动。
+    // 旧实现把它们固定在顶部、列表用 fillMaxSize，头部一高列表就被挤没，
+    // 且头部本身不能滑动 —— 表现为整页卡住。
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(bottom = 16.dp)
     ) {
-        Spacer(Modifier.height(8.dp))
-
-        // 统计卡片
-        StatCard(
-            todayIn = stats.todayInYuan,
-            todayCount = stats.todayCount,
-            weekIn = stats.weekInYuan,
-            monthIn = stats.monthInYuan,
-            todayOut = stats.todayOutYuan
-        )
+        item(key = "stat") {
+            Spacer(Modifier.height(8.dp))
+            StatCard(
+                todayIn = stats.todayInYuan,
+                todayCount = stats.todayCount,
+                weekIn = stats.weekInYuan,
+                monthIn = stats.monthInYuan,
+                todayOut = stats.todayOutYuan
+            )
+        }
 
         // 推送失败警示（这是自动发卡链路唯一的兜底观测点）
         if (pushFailed.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            PushFailedBanner(count = pushFailed.size)
-        }
-
-        Spacer(Modifier.height(14.dp))
-
-        // Tab 切换
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = tab == 0,
-                onClick = { tab = 0 },
-                label = {
-                    Text(
-                        if (pending.isEmpty()) "待确认" else "待确认 ${pending.size}",
-                        fontSize = 13.sp
-                    )
-                },
-                leadingIcon = if (pending.isNotEmpty()) {
-                    { Icon(Icons.Default.PendingActions, null, Modifier.size(16.dp)) }
-                } else null
-            )
-            // 方向已判定的记录可以批量确认，省去逐条点击。
-            // 只对 direction 明确（非 UNKNOWN）的记录生效 —— 方向不明的必须人工判断。
-            if (tab == 0 && pending.count { it.direction != Txn.Direction.UNKNOWN } >= 2) {
-                AssistChip(
-                    onClick = {
-                        pending.filter { it.direction != Txn.Direction.UNKNOWN }
-                            .forEach { vm.confirm(it.id, null) }
-                    },
-                    label = { Text("全部确认", fontSize = 12.sp) },
-                    leadingIcon = {
-                        Icon(Icons.Default.DoneAll, null, Modifier.size(15.dp))
+            item(key = "push-failed") {
+                PushFailedBanner(
+                    count = pushFailed.size,
+                    onDismissAll = {
+                        pushFailed.forEach { vm.dismissPushFailure(it.id) }
                     }
                 )
             }
-            FilterChip(
-                selected = tab == 1,
-                onClick = { tab = 1 },
-                label = { Text("已入账 ${confirmed.size}", fontSize = 13.sp) }
-            )
-            Spacer(Modifier.weight(1f))
-            FilledIconButton(
-                onClick = { showManualAdd = true },
-                modifier = Modifier.size(36.dp)
+        }
+
+        item(key = "tabs") {
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = "手动补录", Modifier.size(20.dp))
+                FilterChip(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    label = {
+                        Text(
+                            if (pending.isEmpty()) "待确认" else "待确认 ${pending.size}",
+                            fontSize = 13.sp
+                        )
+                    },
+                    leadingIcon = if (pending.isNotEmpty()) {
+                        { Icon(Icons.Default.PendingActions, null, Modifier.size(16.dp)) }
+                    } else null
+                )
+                // 方向已判定的记录可以批量确认，省去逐条点击。
+                // 只对 direction 明确（非 UNKNOWN）的记录生效 —— 方向不明的必须人工判断。
+                if (tab == 0 && pending.count { it.direction != Txn.Direction.UNKNOWN } >= 2) {
+                    AssistChip(
+                        onClick = {
+                            pending.filter { it.direction != Txn.Direction.UNKNOWN }
+                                .forEach { vm.confirm(it.id, null) }
+                        },
+                        label = { Text("全部确认", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.DoneAll, null, Modifier.size(15.dp))
+                        }
+                    )
+                }
+                FilterChip(
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                    label = { Text("已入账 ${confirmed.size}", fontSize = 13.sp) }
+                )
+                Spacer(Modifier.weight(1f))
+                FilledIconButton(
+                    onClick = { showManualAdd = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "手动补录", Modifier.size(20.dp))
+                }
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-
-        val list = if (tab == 0) pending else confirmed
-
         if (list.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.ReceiptLong, null,
-                        Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        if (tab == 0) "没有待确认的流水" else "还没有入账记录",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 13.sp
-                    )
-                    if (tab == 1) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "收到收款通知后会出现在「待确认」里",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            fontSize = 11.sp
+            item(key = "empty") {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 64.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.ReceiptLong, null,
+                            Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         )
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            if (tab == 0) "没有待确认的流水" else "还没有入账记录",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp
+                        )
+                        if (tab == 1) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "收到收款通知后会出现在「待确认」里",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
             }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(list, key = { it.id }) { txn ->
-                    if (tab == 0) {
-                        PendingTxnCard(
-                            txn = txn,
-                            onConfirmIn = { vm.confirm(txn.id, Txn.Direction.IN) },
-                            onConfirmOut = { vm.confirm(txn.id, Txn.Direction.OUT) },
-                            onIgnore = { vm.ignore(txn.id) }
-                        )
-                    } else {
-                        ConfirmedTxnCard(
-                            txn = txn,
-                            onDelete = { vm.delete(txn.id) }
-                        )
-                    }
+            items(list, key = { it.id }) { txn ->
+                if (tab == 0) {
+                    PendingTxnCard(
+                        txn = txn,
+                        onConfirmIn = { vm.confirm(txn.id, Txn.Direction.IN) },
+                        onConfirmOut = { vm.confirm(txn.id, Txn.Direction.OUT) },
+                        onIgnore = { vm.ignore(txn.id) }
+                    )
+                } else {
+                    ConfirmedTxnCard(
+                        txn = txn,
+                        onDelete = { vm.delete(txn.id) }
+                    )
                 }
             }
         }
@@ -263,25 +273,47 @@ private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun PushFailedBanner(count: Int) {
+private fun PushFailedBanner(count: Int, onDismissAll: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(
                 Icons.Default.CloudOff, null,
                 Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.onErrorContainer
             )
             Spacer(Modifier.width(10.dp))
-            Text(
-                "有 $count 笔收款推送失败，网站可能未发货",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "有 $count 笔收款推送失败",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                // 双设备场景下这里绝大多数是另一台手机已经推成功了，
+                // 这台只是慢了一步。写清楚，避免每条都去后台核对。
+                Text(
+                    "若另一台设备已发货，可全部清除",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f)
+                )
+            }
+            TextButton(
+                onClick = onDismissAll,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    "清除",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
         }
     }
 }
