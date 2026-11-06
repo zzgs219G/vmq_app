@@ -92,9 +92,54 @@ object DedupRules {
     /** 软合并时间窗。实测重复通知相差 1~3 秒，90 秒留足余量 */
     const val MERGE_WINDOW_MS = 90_000L
 
-    /** 硬指纹：完全相同的通知视为重复投递 */
-    fun hardKey(pkg: String, title: String, text: String, amountCents: Long, direction: String): String {
-        val raw = "$pkg|$title|$text|$amountCents|$direction"
+    /**
+     * 硬指纹的时间桶宽度。
+     *
+     * ## 为什么指纹里必须带时间
+     *
+     * 旧实现只对「包名|标题|通知全文|金额|方向」做 SHA-256，**不含任何时间成分**，
+     * 而 dedupKey 上有唯一索引（见 Txn.kt），于是这个判定是永久的。
+     *
+     * 后果是一次真实的丢单：支付宝的收款通知有时不带时间，
+     * 11月5日 19:21 收到的「收款 3.00 元」与 11月6日 18:27 的另一笔金额、
+     * 文案完全相同，第二笔被判成「重复通知」直接丢弃 —— 没记账、没推送、
+     * 服务端无从得知，买家等不到卡只能来问。账本里也查不到这笔钱。
+     *
+     * 收款通知撞文案是常态：这个店铺几乎所有商品都是 3 元，
+     * 同一金额反复出现，只能靠时间区分。
+     *
+     * ## 为什么是 10 分钟
+     *
+     * 真正的重复投递（同一条通知被系统重发）间隔是秒级，10 分钟远大于它。
+     * 同时 10 分钟远小于「两笔真实交易可能的最小间隔」在这个场景下的量级
+     * （订单有效期本身就是 8 分钟，同一金额在 10 分钟内通常只会成交一笔）。
+     *
+     * ## 取桶边界撞车了会怎样
+     *
+     * 若真有一对重复投递正好跨在桶边界（如 18:29:59 与 18:30:01），
+     * 硬指纹会算成两个不同的键，但紧接着的**软合并**（同来源+同金额+同方向+90秒）
+     * 仍然会把它合并掉。两道防线互补，不会因此双倍记账。
+     *
+     * 方向相反的取舍是刻意的：漏合并 = 多一条可撤销的记录，
+     * 误合并（旧实现）= 钱收了却永远发不出货。详见 docs/解析与去重.md
+     */
+    const val HARD_KEY_BUCKET_MS = 10 * 60 * 1000L
+
+    /**
+     * 硬指纹：同一时间桶内完全相同的通知视为重复投递。
+     *
+     * @param occurredAt 通知发生时间。必须传入，否则跨天的同文案收款会被永久误判为重复。
+     */
+    fun hardKey(
+        pkg: String,
+        title: String,
+        text: String,
+        amountCents: Long,
+        direction: String,
+        occurredAt: Long
+    ): String {
+        val bucket = occurredAt / HARD_KEY_BUCKET_MS
+        val raw = "$pkg|$title|$text|$amountCents|$direction|$bucket"
         return sha256(raw)
     }
 

@@ -58,9 +58,21 @@ interface TxnDao {
     @Query("SELECT * FROM txns WHERE status = 'CONFIRMED' AND mergedInto IS NULL ORDER BY occurredAt DESC")
     fun observeConfirmed(): Flow<List<Txn>>
 
-    /** 推送失败的记录 */
-    @Query("SELECT * FROM txns WHERE pushState = 'FAILED' ORDER BY occurredAt DESC LIMIT 100")
+    /** 推送失败的记录（已手动忽略的不再计入） */
+    @Query(
+        "SELECT * FROM txns WHERE pushState = 'FAILED' AND pushDismissed = 0 " +
+            "ORDER BY occurredAt DESC LIMIT 100"
+    )
     fun observePushFailed(): Flow<List<Txn>>
+
+    /**
+     * 一次性取全部未被忽略的推送失败记录（供同步后自动核销）。
+     *
+     * 与上面那个 Flow 版本的区别：不限 100 条、不订阅变化。
+     * 核销要看全量，否则第 101 条及更早的失败会永远留在横幅里。
+     */
+    @Query("SELECT * FROM txns WHERE pushState = 'FAILED' AND pushDismissed = 0")
+    suspend fun findPushFailed(): List<Txn>
 
     // ---- 统计：一律在 SQL 里聚合，不把明细拉到内存再累加 ----
     // 单位是分，返回 Long 不会有浮点误差。

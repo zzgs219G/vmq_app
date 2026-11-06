@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * 本地账本数据库。
@@ -13,7 +15,7 @@ import androidx.room.RoomDatabase
  */
 @Database(
     entities = [Txn::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class LedgerDatabase : RoomDatabase() {
@@ -22,6 +24,21 @@ abstract class LedgerDatabase : RoomDatabase() {
 
     companion object {
         private const val DB_NAME = "vmq_ledger.db"
+
+        /**
+         * v1 → v2：新增 pushDismissed。
+         *
+         * 账本是长期数据，绝不使用 fallbackToDestructiveMigration ——
+         * 那会在结构升级时清空整张表，等于把用户所有历史账目抹掉。
+         * 新增列必须显式写 ALTER TABLE。
+         */
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE txns ADD COLUMN pushDismissed INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
 
         @Volatile
         private var instance: LedgerDatabase? = null
@@ -33,6 +50,7 @@ abstract class LedgerDatabase : RoomDatabase() {
                     LedgerDatabase::class.java,
                     DB_NAME
                 )
+                    .addMigrations(MIGRATION_1_2)
                     // 后续版本在此追加 .addMigrations(...)
                     .build()
                     .also { instance = it }

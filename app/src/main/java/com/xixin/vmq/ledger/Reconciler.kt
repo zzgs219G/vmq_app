@@ -69,4 +69,27 @@ object Reconciler {
             it.status != Txn.Status.IGNORED &&
             it.source != Txn.Source.MANUAL
     }
+
+    /**
+     * 在服务端订单里找「这笔收款已经被发过货」的证据。
+     *
+     * ## 用途
+     *
+     * 双设备时，慢的那台推送会失败（404/409），但钱确实收到了、货也确实发了。
+     * 用这个方法把这类记录从「疑似漏发」里摘出去，避免横幅长期挂着假警报。
+     *
+     * ## 判据为什么必须收得很紧
+     *
+     * 这里只做「销账」，不影响钱是否真的到账，所以宁可漏判也不要误判：
+     * 误判 = 真漏发的单被当成已发货，那笔钱就彻底没人管了。
+     * 因此要求金额精确相等、订单状态必须是 paid，且收款时间落在订单
+     * 创建到过期之间 —— 比 [reconcile] 的正常匹配窗口更严格，不留 ±容差。
+     */
+    fun findFulfilledOrder(txn: Txn, orders: List<RemoteOrder>): RemoteOrder? =
+        orders.firstOrNull { order ->
+            order.isPaid &&
+                order.payPriceCents == txn.amountCents &&
+                txn.occurredAt >= order.createTime &&
+                txn.occurredAt <= order.expireTime
+        }
 }

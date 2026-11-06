@@ -1,8 +1,10 @@
 package com.xixin.vmq.ledger
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -132,5 +134,62 @@ class TxnParserTest {
         listOf("0.01", "1.00", "28.50", "999.99").forEach {
             assertEquals(it, TxnParser.toYuan(TxnParser.toCents(it)))
         }
+    }
+
+    // ---- 硬指纹的时间桶 ----
+    //
+    // 这一组防的是一次真实丢单：支付宝通知不带时间时，
+    // 隔天同金额同文案的两笔收款算出同一个指纹，第二笔被永久判成重复，
+    // 既不记账也不推送，买家付了钱拿不到卡，而站长完全无从得知。
+
+    private fun key(occurredAt: Long) = DedupRules.hardKey(
+        pkg = "com.eg.android.AlipayGphone",
+        title = "",
+        text = "收款 3.00元",
+        amountCents = 300L,
+        direction = Txn.Direction.IN,
+        occurredAt = occurredAt
+    )
+
+    private val T0 = 1_760_000_000_000L   // 固定基准时刻
+
+    @Test
+    fun `秒级重复投递 - 指纹相同 仍判重复`() {
+        assertEquals(key(T0), key(T0 + 3_000L))
+    }
+
+    @Test
+    fun `同一分钟内重复投递 - 指纹相同`() {
+        assertEquals(key(T0), key(T0 + 59_000L))
+    }
+
+    @Test
+    fun `隔一天的同金额同文案 - 指纹必须不同`() {
+        // 这是本次修复的核心：旧实现在这里返回同一个指纹，导致丢单
+        assertNotEquals(key(T0), key(T0 + 24 * 60 * 60 * 1000L))
+    }
+
+    @Test
+    fun `隔一小时的同文案 - 指纹必须不同`() {
+        assertNotEquals(key(T0), key(T0 + 60 * 60 * 1000L))
+    }
+
+    @Test
+    fun `跨桶边界 - 指纹不同 但软合并仍能兜住`() {
+        val bucketMs = DedupRules.HARD_KEY_BUCKET_MS
+        val beforeBoundary = bucketMs - 1_000L
+        val afterBoundary = bucketMs + 1_000L
+        // 硬指纹不同（可能被记成两笔）
+        assertNotEquals(key(beforeBoundary), key(afterBoundary))
+        // 但两笔间隔仅 2 秒，远小于软合并窗口，第二笔会被合并掉，不会双倍记账
+        assertTrue(afterBoundary - beforeBoundary < DedupRules.MERGE_WINDOW_MS)
+    }
+
+    @Test
+    fun `指纹区分金额与方向`() {
+        val base = DedupRules.hardKey("p", "", "t", 300L, Txn.Direction.IN, T0)
+        assertNotEquals(base, DedupRules.hardKey("p", "", "t", 301L, Txn.Direction.IN, T0))
+        assertNotEquals(base, DedupRules.hardKey("p", "", "t", 300L, Txn.Direction.OUT, T0))
+        assertNotEquals(base, DedupRules.hardKey("p2", "", "t", 300L, Txn.Direction.IN, T0))
     }
 }

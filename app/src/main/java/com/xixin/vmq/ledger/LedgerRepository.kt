@@ -1,6 +1,7 @@
 package com.xixin.vmq.ledger
 
 import android.content.Context
+import com.xixin.vmq.network.RemoteOrder
 import com.xixin.vmq.store.AppStore
 import kotlinx.coroutines.flow.Flow
 
@@ -59,9 +60,9 @@ class LedgerRepository(private val context: Context) {
         val parsed = TxnParser.parse(source, fullText)
             ?: return RecordResult.Unparsed("未匹配到金额: $fullText")
 
-        val hardKey = DedupRules.hardKey(pkg, title, text, parsed.amountCents, parsed.direction)
+        val hardKey = DedupRules.hardKey(pkg, title, text, parsed.amountCents, parsed.direction, occurredAt)
 
-        // 1. 硬指纹：完全相同 → 直接丢弃
+        // 1. 硬指纹：同一时间桶内完全相同 → 直接丢弃
         dao.findByDedupKey(hardKey)?.let { return RecordResult.Duplicate(it) }
 
         // 2. 软合并：同来源+同金额+同方向+时间窗内 → 判为同一笔
@@ -90,7 +91,14 @@ class LedgerRepository(private val context: Context) {
                 pushState = Txn.PushState.NONE,
                 note = "软合并：与 #${candidate.id} 视为同一笔"
             )
-            val id = dao.insert(merged)
+            val id = try {
+                dao.insert(merged)
+            } catch (e: Exception) {
+                // 并发下另一条同指纹通知抢先插入。此时那条已存在，
+                // 语义上就是「重复」，不是失败 —— 不能让它变成丢单。
+                dao.findByDedupKey(hardKey)?.let { return RecordResult.Duplicate(it) }
+                throw e
+            }
             return RecordResult.Merged(candidate, id)
         }
 
@@ -112,7 +120,14 @@ class LedgerRepository(private val context: Context) {
             pushState = Txn.PushState.NONE,
             note = "规则: ${parsed.rule}"
         )
-        val id = dao.insert(txn)
+        val id = try {
+            dao.insert(txn)
+        } catch (e: Exception) {
+            // 同上：并发抢插时把「撞唯一索引」翻译成「重复」，
+            // 而不是让异常冒到上层变成「记账失败」把这条通知丢掉。
+            dao.findByDedupKey(hardKey)?.let { return RecordResult.Duplicate(it) }
+            throw e
+        }
         return RecordResult.Created(txn.copy(id = id), id)
     }
 
@@ -172,6 +187,40 @@ class LedgerRepository(private val context: Context) {
     suspend fun markPushFailed(id: Long, error: String) {
         val t = dao.findById(id) ?: return
         dao.update(t.copy(pushState = Txn.PushState.FAILED, pushError = error))
+    }
+
+    /**
+     * 忽略一条推送失败（不再计入横幅）。
+     *
+     * 用于双设备场景：另一台已经推成功，这一台的失败是速度差造成的噪音。
+     * 只改横幅显示，不改 pushState —— 账本明细里仍能看到当时的错误，
+     * 否则就成了「把证据抹掉」，以后真出问题查不到。
+     */
+    suspend fun dismissPushFailure(id: Long) {
+        val t = dao.findById(id) ?: return
+        dao.update(t.copy(pushDismissed = true))
+    }
+
+    /**
+     * 同步服务端订单后自动核销：已被发过货的失败记录，不再报警。
+     *
+     * 这是「另一台手机推成功、这台推失败」的主要出口 ——
+     * 不需要用户逐条点，一同步就自动清掉。
+     *
+     * @return 本次核销的条数
+     */
+    suspend fun reconcilePushFailures(orders: List<RemoteOrder>): Int {
+        val failed = dao.findPushFailed()
+        if (failed.isEmpty() || orders.isEmpty()) return 0
+
+        var cleared = 0
+        for (t in failed) {
+            if (Reconciler.findFulfilledOrder(t, orders) != null) {
+                dao.update(t.copy(pushDismissed = true))
+                cleared++
+            }
+        }
+        return cleared
     }
 
     // ---- 查询 / 统计 ----

@@ -148,6 +148,10 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
         _syncState.value = SyncState.Loading
         when (val r = OrderSyncApi.fetchOrders()) {
             is OrdersResult.Success -> {
+                // 先核销「另一台手机已发货、这台推失败」的假警报。
+                // 放在这里而不是定时任务：同步是用户主动触发或进页面自动触发的，
+                // 正好是重新比对的最佳时机，且不额外耗电。
+                repo.reconcilePushFailures(r.orders)
                 _orders.value = r.orders
                 _syncState.value = SyncState.Success(r.orders.size, System.currentTimeMillis())
             }
@@ -156,6 +160,26 @@ class LedgerViewModel(app: Application) : AndroidViewModel(app) {
             OrdersResult.NotConfigured ->
                 _syncState.value = SyncState.NotConfigured
         }
+    }
+
+    /**
+     * 忽略一条疑似漏发记录。
+     *
+     * 用于「这不是订单」的情况 —— 比如有人随手转了 0.1 元、
+     * 或买家根本不是通过本站下单。这类记录服务端永远查不到对应订单，
+     * 会一直红着，没有任何自动判据能识别，只能由人确认一次。
+     *
+     * 标记为 IGNORED 后 [Reconciler.candidates] 会把它排除，红字消失。
+     * 记录本身保留，账本里仍可查，不会真的删掉钱。
+     */
+    fun ignoreSuspicious(item: Reconciler.Suspicious) = viewModelScope.launch {
+        repo.ignore(item.txn.id)
+        refreshTick.value++
+    }
+
+    /** 忽略一条推送失败（横幅里手动清除） */
+    fun dismissPushFailure(id: Long) = viewModelScope.launch {
+        repo.dismissPushFailure(id)
     }
 
     /**

@@ -57,6 +57,22 @@ data class Txn(
 
     @ColumnInfo(name = "pushError") val pushError: String = "",
 
+    /**
+     * 推送失败是否已被用户手动忽略（不再计入告警横幅）。
+     *
+     * ## 为什么需要它
+     *
+     * 双设备场景下，另一台手机推成功、这一台慢一步推会拿到 404/409。
+     * 钱确实收到了、货也确实发了，但这台的账本会永久记着「推送失败」，
+     * 横幅一直显示「有 N 笔收款推送失败，网站可能未发货」——
+     * 全是假的，而且不会自行消失，越积越多，最后用户就不看了。
+     *
+     * 服务端已尽量把「已被其他设备发货」识别成成功，但覆盖不全
+     * （例如对方发货完成后才推送，服务端只能知道订单已 paid）。
+     * 所以必须留一个用户能主动清掉的口子。
+     */
+    @ColumnInfo(name = "pushDismissed") val pushDismissed: Boolean = false,
+
     val note: String = ""
 ) {
     object Status {
